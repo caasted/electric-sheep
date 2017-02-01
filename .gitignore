@@ -1,3 +1,13 @@
+# MacOS
+.DS_Store
+
+# Results files
+*.h5
+*.pickle
+
+# My Archives
+first_success/
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
