@@ -12,6 +12,9 @@ from six.moves import cPickle as pickle
 import os
 import time
 
+# Select the class of images to use
+image_class = 0 # [0 - 9] for CIFAR-10
+
 # Fetch data
 (X_train, y_train), (X_test, y_test) = cifar10.load_data()
 
@@ -38,21 +41,18 @@ X_train /= 255
 # Limit data to a single class of images
 X_new = np.ndarray(shape=(X_train.shape[0] / 10, X_train.shape[1], 
 					X_train.shape[2], X_train.shape[3]), dtype=np.float32)
-classType = 3 # Select the types of images to use
 sampleNumber = 0
 for X, y in zip(X_train, y_train):
-	if y[0] == classType:
+	if y[0] == image_class:
 		X_new[sampleNumber] = X
 		sampleNumber += 1
 X_train = X_new[:sampleNumber, :, :, :]
 
 print X_train.shape
 
-# Models and training process adapted from 
+# Models and training process adapted from the following three sources:
 # https://github.com/osh/KerasGAN/blob/master/MNIST_CNN_GAN_v2.ipynb
-# with additional insights from 
 # https://github.com/openai/improved-gan/blob/master/mnist_svhn_cifar10/train_cifar_minibatch_discrimination.py
-# and 
 # http://torch.ch/blog/2015/11/13/gan.html
 
 # Optimizers
@@ -153,99 +153,109 @@ GAN.compile(loss='categorical_crossentropy', optimizer=GAN_optimizer)
 # GAN.summary()
 
 # Pre-train discriminator
-# disc_file = "disc3-1-pre.h5"
-# if os.path.isfile(disc_file):
-# 	discriminator.load_weights(disc_file)
-# 	print "Previously trained discriminator weights loaded."
-# else:
 noise = np.random.uniform(0, 1, size=[X_train.shape[0], 100])
 generated_images = generator.predict(noise)
-X_new = np.concatenate((X_train, generated_images))
-y_new = np.zeros([2*X_train.shape[0],2])
-y_new[:X_train.shape[0],1] = 1
-y_new[X_train.shape[0]:,0] = 1
+X_pre = np.concatenate((X_train, generated_images))
+y_pre = np.zeros([2*X_train.shape[0],2])
+y_pre[:X_train.shape[0],1] = 1
+y_pre[X_train.shape[0]:,0] = 1
 
 training_lock(discriminator, True)
-discriminator.fit(X_new, y_new, nb_epoch=2, batch_size=32)
-preds = discriminator.predict(X_new)
+discriminator.fit(X_pre, y_pre, nb_epoch=1, batch_size=32)
+preds = discriminator.predict(X_pre)
 
 preds_class = np.argmax(preds, axis=1)
-y_new_class = np.argmax(y_new, axis=1)
+y_new_class = np.argmax(y_pre, axis=1)
 accuracy = 1. * (y_new_class == preds_class).sum() / y_new_class.shape[0]
 print "Accuracy:", accuracy
-# discriminator.save_weights(disc_file)
 
-losses = {"d": [], "g": [], "acc": []}
-def train_for_n(nb_epoch=1000, batch_size=100):
-	start = time.time()
-	for epoch in range(nb_epoch):
-		# Make generative images
-		image_batch = X_train[np.random.randint(0, X_train.shape[0], size=batch_size), :, :, :]    
-		noise = np.random.uniform(0, 1, size=[batch_size, 100])
-		generated_images = generator.predict(noise)
-		
-		# Train discriminator
-		X_new = np.concatenate((image_batch, generated_images))
-		y_new = np.zeros([2 * batch_size, 2])
-		y_new[0:batch_size, 1] = 1
-		y_new[batch_size:, 0] = 1
-		
-		training_lock(discriminator, True)
-		d_loss  = discriminator.train_on_batch(X_new, y_new)
-		losses["d"].append(d_loss)
+record = {"disc": [], "gen": [], "acc": []}
+def train_for_n(nb_epoch=1200, batch_size=100):
 	
-		# Train GAN
-		noise_tr = np.random.uniform(0, 1, size=[batch_size, 100])
-		y_new_2 = np.zeros([batch_size,2])
-		y_new_2[:,1] = 1
+	start = time.time()
+	batches_per_epoch = X_train.shape[0] / batch_size
+	for epoch in range(nb_epoch):
 		
-		training_lock(discriminator, False)
-		g_loss = GAN.train_on_batch(noise_tr, y_new_2 )
-		losses["g"].append(g_loss)
-
-		# Check accuracy of discriminator after GAN training
-		preds = discriminator.predict(X_new)
+		d_loss = 0
+		g_loss = 0
+		# Loop through all samples each epoch
+		for batch_number in range(batches_per_epoch):
+			
+			# Section of training data to use
+			batch_start = batch_number * batch_size
+			batch_end = (batch_number + 1) * batch_size
+			
+			# Make generative images
+			image_batch = X_train[batch_start:batch_end, :, :, :]    
+			noise_batch = np.random.uniform(0, 1, size=[batch_size, 100])
+			generated_images = generator.predict(noise_batch)
+			
+			# Train discriminator
+			X_batch = np.concatenate((image_batch, generated_images))
+			y_batch = np.zeros([2 * batch_size, 2])
+			y_batch[0:batch_size, 1] = 1
+			y_batch[batch_size:, 0] = 1
+			
+			training_lock(discriminator, True) # Set layers to trainable
+			d_loss  += discriminator.train_on_batch(X_batch, y_batch)
+			training_lock(discriminator, False) # Set layers to not trainable
+			
+			# Train GAN
+			noise_batch = np.random.uniform(0, 1, size=[batch_size, 100]) # New random inputs
+			y_batch_2 = np.zeros([batch_size, 2])
+			y_batch_2[:, 1] = 1
+			
+			g_loss += GAN.train_on_batch(noise_batch, y_batch_2)
+			
+		# Check accuracy of discriminator after epoch
+		noise = np.random.uniform(0, 1, size=[X_train.shape[0], 100])
+		generated_images = generator.predict(noise)
+		X_check = np.concatenate((X_train, generated_images))
+		y_check = np.zeros([2*X_train.shape[0], 2])
+		y_check[:X_train.shape[0], 1] = 1
+		y_check[X_train.shape[0]:, 0] = 1
+		
+		preds = discriminator.predict(X_check)
 		preds_class = np.argmax(preds, axis=1)
-		y_class = np.argmax(y_new, axis=1)
+		y_class = np.argmax(y_check, axis=1)
 		accuracy = 1. * (y_class == preds_class).sum() / y_class.shape[0]
-		losses['acc'].append(accuracy)
+		
+		d_loss /= batches_per_epoch
+		g_loss /= batches_per_epoch
 
-		if epoch % 10 == 0 and epoch != 0:
-			# Report progress:
-			print "Epoch:", epoch, ", d_loss:", d_loss, ", g_loss:", g_loss, "Accuracy:", accuracy
-			print "Time Remaining:", (nb_epoch - (epoch + 1)) * (time.time() - start) / (60 * (epoch + 1)), "minutes"
-		if epoch % 10000 == 0 and epoch != 0:
-			gen_file = "gen" + str(classType) + "-" + str(epoch) + ".h5"
+		# Log progress
+		record['acc'].append(accuracy)
+		record["disc"].append(d_loss)
+		record["gen"].append(g_loss)
+
+		# Report progress:
+		print "Epoch:", epoch, ", d_loss:", d_loss, ", g_loss:", g_loss, "Accuracy:", accuracy
+		print "Time Remaining:", (nb_epoch - (epoch + 1)) * (time.time() - start) / (60 * (epoch + 1)), "minutes"
+
+		if epoch % (nb_epoch / 10) == 0 and epoch != 0:
+			gen_file = "gen" + str(image_class) + "-" + str(epoch) + ".h5"
 			generator.save(gen_file)
 			print "\nGenerator model saved to", gen_file, "\n"
 
-# Faces took 100 epochs on a 13,000 dataset -> 13,000 epochs with batch_size = 100?
-# They say it took a day training on a GPU for 100 epochs
-
-# Improved GAN (Goodfellow) uses batch_size = 100, loops on dataset / batch_size, then does 1200 epochs...
-# That's actually 1200 * 50,000 / 100 = 600,000 of my nb_epoch, grabbing a sample every 500 epochs
-# That's about 48 hours of training on a 980ti based on my first success network
-
-# 60,000 batches x 100 samples / batch ~= 2.5 hours
 print "Starting training."
-nb_epoch = 60000
+nb_epoch = 1200
 train_for_n(nb_epoch=nb_epoch, batch_size=100)
 
-gen_file = "gen" + str(classType) + "-" + str(nb_epoch) + ".h5"
-disc_file = "disc" + str(classType) + "-" + str(nb_epoch) + ".h5"
+gen_file = "gen" + str(image_class) + "-" + str(nb_epoch) + ".h5"
+disc_file = "disc" + str(image_class) + "-" + str(nb_epoch) + ".h5"
 generator.save(gen_file)
 discriminator.save(disc_file)
 
 print "Training complete."
 
-print "Generator loss:", losses["g"][-1]
-print "Discriminator loss:", losses["d"][-1]
-print "Discriminator accuracy:", losses["acc"][-1]
+print "Generator loss:", record["gen"][-1]
+print "Discriminator loss:", record["disc"][-1]
+print "Discriminator accuracy:", record["acc"][-1]
 
-pickle_file = "losses" + str(classType) + "-" + str(nb_epoch) + ".pickle"
+pickle_file = "record" + str(image_class) + "-" + str(nb_epoch) + ".pickle"
 try:
 	f = open(pickle_file, 'wb')
-	pickle.dump(losses, f, pickle.HIGHEST_PROTOCOL)
+	pickle.dump(record, f, pickle.HIGHEST_PROTOCOL)
 	f.close()
 except Exception as e:
 	print 'Unable to save data to', pickle_file, ':', e

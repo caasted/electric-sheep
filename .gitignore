@@ -6,7 +6,7 @@
 *.pickle
 
 # My Archives
-first_success/
+1/
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
