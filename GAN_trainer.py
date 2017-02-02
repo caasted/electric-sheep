@@ -6,14 +6,25 @@ from keras.layers.advanced_activations import LeakyReLU
 from keras.layers.normalization import BatchNormalization
 from keras.layers.noise import GaussianNoise
 from keras.layers.pooling import GlobalAveragePooling2D, MaxPooling2D
-from keras.optimizers import Adam, Nadam
+from keras.optimizers import Adam, Nadam, Adadelta
 import numpy as np
 from six.moves import cPickle as pickle
 import os
 import time
 
 # Select the class of images to use
-image_class = 0 # [0 - 9] for CIFAR-10
+# 0: Airplanes
+# 1: Cars
+# 2: Birds
+# 3: Cats
+# 4: Deer
+# 5: Dogs
+# 6: Frogs
+# 7: Horses
+# 8: Boats
+# 9: Trucks
+# 10: All
+image_class = 1
 
 # Fetch data
 (X_train, y_train), (X_test, y_test) = cifar10.load_data()
@@ -38,15 +49,16 @@ X_train /= 255
 # X_train /= 128
 # X_train -= 128
 
-# Limit data to a single class of images
-X_new = np.ndarray(shape=(X_train.shape[0] / 10, X_train.shape[1], 
-					X_train.shape[2], X_train.shape[3]), dtype=np.float32)
-sampleNumber = 0
-for X, y in zip(X_train, y_train):
-	if y[0] == image_class:
-		X_new[sampleNumber] = X
-		sampleNumber += 1
-X_train = X_new[:sampleNumber, :, :, :]
+# Option to limit data to a single class of images
+if image_class < 10:
+	X_new = np.ndarray(shape=(X_train.shape[0] / 10, X_train.shape[1], 
+						X_train.shape[2], X_train.shape[3]), dtype=np.float32)
+	sampleNumber = 0
+	for X, y in zip(X_train, y_train):
+		if y[0] == image_class:
+			X_new[sampleNumber] = X
+			sampleNumber += 1
+	X_train = X_new[:sampleNumber, :, :, :]
 
 print X_train.shape
 
@@ -56,8 +68,10 @@ print X_train.shape
 # http://torch.ch/blog/2015/11/13/gan.html
 
 # Optimizers
-GAN_optimizer = Adam(lr=3e-4)
-disc_optimizer = Adam(lr=3e-4)
+# GAN_optimizer = Adam(lr=3e-4)
+# disc_optimizer = Adam(lr=3e-4)
+GAN_optimizer = Adadelta()						# Currently gen loss increases and disc loss decreases over time
+disc_optimizer = Adadelta()						# Need to strengthen gen or weaken disc
 dropout_rate = 0.25
 
 # Generator Model
