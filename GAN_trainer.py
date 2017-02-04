@@ -26,6 +26,13 @@ import time
 # 10: All
 image_class = 1
 
+# Optimizers
+# GAN_optimizer = Adam(lr=3e-4)
+# disc_optimizer = Adam(lr=3e-4)
+GAN_optimizer = Adadelta()						# With equal training, gen loss increases and disc loss decreases over time
+disc_optimizer = Adadelta()						# Need to strengthen gen or weaken disc over time; consider decay=1e-3?
+dropout_rate = 0.25								# Increasing the batch size appears to accomplish the same goal
+
 # Fetch data
 (X_train, y_train), (X_test, y_test) = cifar10.load_data()
 
@@ -67,33 +74,25 @@ print X_train.shape
 # https://github.com/openai/improved-gan/blob/master/mnist_svhn_cifar10/train_cifar_minibatch_discrimination.py
 # http://torch.ch/blog/2015/11/13/gan.html
 
-# Optimizers
-# GAN_optimizer = Adam(lr=3e-4)
-# disc_optimizer = Adam(lr=3e-4)
-GAN_optimizer = Adadelta()						# Currently gen loss increases and disc loss decreases over time
-disc_optimizer = Adadelta()						# Need to strengthen gen or weaken disc
-dropout_rate = 0.25
-
 # Generator Model
 g_input = Input(shape=[100])
-g_layer = Dense(512*4*4)(g_input)
+g_layer = Dense(128*8*8)(g_input)
 g_layer = BatchNormalization(mode=2)(g_layer)
 g_layer = Activation('relu')(g_layer)
 
-g_layer = Reshape( [4, 4, 512] )(g_layer)
+g_layer = Reshape( [8, 8, 128] )(g_layer)
 
-g_layer = UpSampling2D(size=(2, 2))(g_layer) # 4 -> 8
+g_layer = UpSampling2D(size=(2, 2))(g_layer) # 8 -> 16
 g_layer = Convolution2D(256, 5, 5, border_mode='same')(g_layer)
 g_layer = BatchNormalization(mode=2)(g_layer)
 g_layer = Activation('relu')(g_layer)
 
-g_layer = UpSampling2D(size=(2, 2))(g_layer) # 8 -> 16
-g_layer = Convolution2D(128, 5, 5, border_mode='same')(g_layer)
+g_layer = Convolution2D(256, 5, 5, border_mode='same')(g_layer)
 g_layer = BatchNormalization(mode=2)(g_layer)
 g_layer = Activation('relu')(g_layer)
 
 g_layer = UpSampling2D(size=(2, 2))(g_layer) # 16 -> 32
-g_layer = Convolution2D(64, 5, 5, border_mode='same')(g_layer)
+g_layer = Convolution2D(128, 5, 5, border_mode='same')(g_layer)
 g_layer = BatchNormalization(mode=2)(g_layer)
 g_layer = Activation('relu')(g_layer)
 
@@ -101,45 +100,54 @@ g_layer = Convolution2D(3, 3, 3, border_mode='same')(g_layer)
 g_output = Activation('sigmoid')(g_layer)
 
 generator = Model(g_input, g_output)
-generator.compile(loss='binary_crossentropy', optimizer=GAN_optimizer)
+generator.compile(loss='mean_squared_error', optimizer=GAN_optimizer)
 # generator.summary()
 
 # Discriminator Model
 d_input = Input(shape=X_train.shape[1:])
 
-d_layer = Convolution2D(32, 5, 5, border_mode='same')(d_input)
+d_layer = Convolution2D(96, 3, 3, border_mode='same')(d_input)
 d_layer = MaxPooling2D(pool_size=(2, 2), border_mode='same')(d_layer)
 d_layer = Activation('relu')(d_layer)
 d_layer = Dropout(dropout_rate)(d_layer)
 
-d_layer = Convolution2D(64, 5, 5, subsample=(2, 2), border_mode='same')(d_layer) # 32 -> 16
+d_layer = Convolution2D(96, 3, 3, border_mode='same')(d_input)
 d_layer = MaxPooling2D(pool_size=(2, 2), border_mode='same')(d_layer)
 d_layer = Activation('relu')(d_layer)
 d_layer = Dropout(dropout_rate)(d_layer)
 
-d_layer = Convolution2D(96, 5, 5, border_mode='same')(d_layer)
+d_layer = Convolution2D(96, 3, 3, subsample=(2, 2), border_mode='same')(d_layer) # 32 -> 16
 d_layer = MaxPooling2D(pool_size=(2, 2), border_mode='same')(d_layer)
 d_layer = Activation('relu')(d_layer)
 d_layer = Dropout(dropout_rate)(d_layer)
 
-d_layer = Convolution2D(128, 5, 5, subsample=(2, 2), border_mode='same')(d_layer) # 16 -> 8
+d_layer = Convolution2D(192, 3, 3, border_mode='same')(d_layer)
 d_layer = MaxPooling2D(pool_size=(2, 2), border_mode='same')(d_layer)
 d_layer = Activation('relu')(d_layer)
 d_layer = Dropout(dropout_rate)(d_layer)
 
-d_layer = Convolution2D(160, 5, 5, border_mode='same')(d_layer)
+d_layer = Convolution2D(192, 3, 3, border_mode='same')(d_input)
 d_layer = MaxPooling2D(pool_size=(2, 2), border_mode='same')(d_layer)
 d_layer = Activation('relu')(d_layer)
 d_layer = Dropout(dropout_rate)(d_layer)
 
-d_layer = Convolution2D(192, 5, 5, subsample=(2, 2), border_mode='same')(d_layer) # 8 -> 4
+d_layer = Convolution2D(192, 3, 3, subsample=(2, 2), border_mode='same')(d_layer) # 16 -> 8
+d_layer = MaxPooling2D(pool_size=(2, 2), border_mode='same')(d_layer)
+d_layer = Activation('relu')(d_layer)
+d_layer = Dropout(dropout_rate)(d_layer)
+
+d_layer = Convolution2D(192, 3, 3, border_mode='same')(d_layer)
 d_layer = MaxPooling2D(pool_size=(2, 2), border_mode='same')(d_layer)
 d_layer = Activation('relu')(d_layer)
 d_layer = Dropout(dropout_rate)(d_layer)
 
 d_layer = Flatten()(d_layer)
 
-d_layer = Dense(1024)(d_layer)
+d_layer = Dense(192)(d_layer)
+d_layer = Activation('relu')(d_layer)
+d_layer = Dropout(dropout_rate)(d_layer)
+
+d_layer = Dense(192)(d_layer)
 d_layer = Activation('relu')(d_layer)
 d_layer = Dropout(dropout_rate)(d_layer)
 
@@ -216,7 +224,7 @@ def train_for_n(nb_epoch=1200, batch_size=100):
 			
 			# Train GAN
 			noise_batch = np.random.uniform(0, 1, size=[batch_size, 100]) # New random inputs
-			y_batch_2 = np.zeros([batch_size, 2])
+			y_batch_2 = np.zeros([noise_batch.shape[0], 2])
 			y_batch_2[:, 1] = 1
 			
 			g_loss += GAN.train_on_batch(noise_batch, y_batch_2)
@@ -249,8 +257,21 @@ def train_for_n(nb_epoch=1200, batch_size=100):
 		if epoch % (nb_epoch / 10) == 0 and epoch != 0:
 			gen_file = "gen" + str(image_class) + "-" + str(epoch) + ".h5"
 			generator.save(gen_file)
-			print "\nGenerator model saved to", gen_file, "\n"
+			print "\nGenerator model saved to", gen_file
+			pickle_file = "record" + str(image_class) + "-" + str(epoch) + ".pickle"
+			saveRecords(pickle_file)
+			statinfo = os.stat(pickle_file)
+			print "Loss records saved to", pickle_file, "\n"
 
+def saveRecords(pickle_file):
+	try:
+		f = open(pickle_file, 'wb')
+		pickle.dump(record, f, pickle.HIGHEST_PROTOCOL)
+		f.close()
+	except Exception as e:
+		print 'Unable to save data to', pickle_file, ':', e
+		raise
+		
 print "Starting training."
 nb_epoch = 1200
 train_for_n(nb_epoch=nb_epoch, batch_size=100)
@@ -267,13 +288,6 @@ print "Discriminator loss:", record["disc"][-1]
 print "Discriminator accuracy:", record["acc"][-1]
 
 pickle_file = "record" + str(image_class) + "-" + str(nb_epoch) + ".pickle"
-try:
-	f = open(pickle_file, 'wb')
-	pickle.dump(record, f, pickle.HIGHEST_PROTOCOL)
-	f.close()
-except Exception as e:
-	print 'Unable to save data to', pickle_file, ':', e
-	raise
-	
+saveRecords(pickle_file)
 statinfo = os.stat(pickle_file)
 print 'Compressed pickle size:', statinfo.st_size
