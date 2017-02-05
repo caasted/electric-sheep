@@ -26,16 +26,16 @@ from keras import backend as K
 # 8: Boats
 # 9: Trucks
 # 10: All
-image_class = 1
+image_class = 1 # Cars seem to be one of the easier to generate classes
 
 # Optimizers
 max_disc_lr = 3e-4
-min_disc_lr = 1e-5
+min_disc_lr = 3e-5
 disc_optimizer = Adam(lr=max_disc_lr)
 GAN_optimizer = Adam(lr=3e-4)
-lr_tune_rate = 1e-5
-# GAN_optimizer = Adadelta()
-# disc_optimizer = Adadelta()
+lr_tune_rate = 1e-6
+# GAN_optimizer = Adadelta()	# Using adadelta without learning rate adjustment produces photo-like images
+# disc_optimizer = Adadelta()	# but the images aren't very crisp and the generator loss increases over time
 dropout_rate = 0.2
 g_w_reg = l2(1e-4)
 d_w_reg = l2(1e-4)
