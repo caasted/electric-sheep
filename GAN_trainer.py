@@ -4,6 +4,7 @@ from keras.layers import Dense, Dropout, Activation, UpSampling2D, Flatten
 from keras.layers import Input, Convolution2D, Reshape, Deconvolution2D
 from keras.layers.advanced_activations import LeakyReLU
 from keras.layers.normalization import BatchNormalization
+from keras.regularizers import l2
 from keras.layers.noise import GaussianNoise
 from keras.layers.pooling import GlobalAveragePooling2D, MaxPooling2D
 from keras.optimizers import Adam, Nadam, Adadelta
@@ -11,6 +12,7 @@ import numpy as np
 from six.moves import cPickle as pickle
 import os
 import time
+from keras import backend as K
 
 # Select the class of images to use
 # 0: Airplanes
@@ -29,9 +31,11 @@ image_class = 1
 # Optimizers
 # GAN_optimizer = Adam(lr=3e-4)
 # disc_optimizer = Adam(lr=3e-4)
-GAN_optimizer = Adadelta()						# With equal training, gen loss increases and disc loss decreases over time
-disc_optimizer = Adadelta()						# Need to strengthen gen or weaken disc over time; consider decay=1e-3?
-dropout_rate = 0.25								# Increasing the batch size appears to accomplish the same goal
+GAN_optimizer = Adadelta()
+disc_optimizer = Adadelta()
+dropout_rate = 0.2
+g_w_reg = l2(1e-4)
+d_w_reg = l2(1e-4)
 
 # Fetch data
 (X_train, y_train), (X_test, y_test) = cifar10.load_data()
@@ -76,27 +80,28 @@ print X_train.shape
 
 # Generator Model
 g_input = Input(shape=[100])
-g_layer = Dense(128*8*8)(g_input)
+g_layer = Dense(512*4*4)(g_input)
 g_layer = BatchNormalization(mode=2)(g_layer)
 g_layer = Activation('relu')(g_layer)
 
-g_layer = Reshape( [8, 8, 128] )(g_layer)
+g_layer = Reshape( [4, 4, 512] )(g_layer)
+
+g_layer = UpSampling2D(size=(2, 2))(g_layer) # 4 -> 8
+g_layer = Convolution2D(256, 5, 5, border_mode='same')(g_layer)
+g_layer = BatchNormalization(mode=2)(g_layer)
+g_layer = Activation('relu')(g_layer)
 
 g_layer = UpSampling2D(size=(2, 2))(g_layer) # 8 -> 16
-g_layer = Convolution2D(256, 5, 5, border_mode='same')(g_layer)
-g_layer = BatchNormalization(mode=2)(g_layer)
-g_layer = Activation('relu')(g_layer)
-
-g_layer = Convolution2D(256, 5, 5, border_mode='same')(g_layer)
-g_layer = BatchNormalization(mode=2)(g_layer)
-g_layer = Activation('relu')(g_layer)
-
-g_layer = UpSampling2D(size=(2, 2))(g_layer) # 16 -> 32
 g_layer = Convolution2D(128, 5, 5, border_mode='same')(g_layer)
 g_layer = BatchNormalization(mode=2)(g_layer)
 g_layer = Activation('relu')(g_layer)
 
-g_layer = Convolution2D(3, 3, 3, border_mode='same')(g_layer)
+g_layer = UpSampling2D(size=(2, 2))(g_layer) # 16 -> 32
+g_layer = Convolution2D(64, 5, 5, border_mode='same')(g_layer)
+g_layer = BatchNormalization(mode=2)(g_layer)
+g_layer = Activation('relu')(g_layer)
+
+g_layer = Convolution2D(3, 3, 3, border_mode='same', W_regularizer=g_w_reg)(g_layer)
 g_output = Activation('sigmoid')(g_layer)
 
 generator = Model(g_input, g_output)
@@ -106,48 +111,43 @@ generator.compile(loss='mean_squared_error', optimizer=GAN_optimizer)
 # Discriminator Model
 d_input = Input(shape=X_train.shape[1:])
 
-d_layer = Convolution2D(96, 3, 3, border_mode='same')(d_input)
+d_layer = Convolution2D(96, 5, 5, border_mode='same', W_regularizer=d_w_reg)(d_input)
 d_layer = MaxPooling2D(pool_size=(2, 2), border_mode='same')(d_layer)
 d_layer = Activation('relu')(d_layer)
 d_layer = Dropout(dropout_rate)(d_layer)
 
-d_layer = Convolution2D(96, 3, 3, border_mode='same')(d_input)
+d_layer = Convolution2D(96, 5, 5, border_mode='same', W_regularizer=d_w_reg)(d_input)
 d_layer = MaxPooling2D(pool_size=(2, 2), border_mode='same')(d_layer)
 d_layer = Activation('relu')(d_layer)
 d_layer = Dropout(dropout_rate)(d_layer)
 
-d_layer = Convolution2D(96, 3, 3, subsample=(2, 2), border_mode='same')(d_layer) # 32 -> 16
+d_layer = Convolution2D(96, 5, 5, subsample=(2, 2), border_mode='same', W_regularizer=d_w_reg)(d_layer) # 32 -> 16
 d_layer = MaxPooling2D(pool_size=(2, 2), border_mode='same')(d_layer)
 d_layer = Activation('relu')(d_layer)
 d_layer = Dropout(dropout_rate)(d_layer)
 
-d_layer = Convolution2D(192, 3, 3, border_mode='same')(d_layer)
+d_layer = Convolution2D(192, 5, 5, border_mode='same', W_regularizer=d_w_reg)(d_layer)
 d_layer = MaxPooling2D(pool_size=(2, 2), border_mode='same')(d_layer)
 d_layer = Activation('relu')(d_layer)
 d_layer = Dropout(dropout_rate)(d_layer)
 
-d_layer = Convolution2D(192, 3, 3, border_mode='same')(d_input)
+d_layer = Convolution2D(192, 5, 5, border_mode='same', W_regularizer=d_w_reg)(d_layer)
 d_layer = MaxPooling2D(pool_size=(2, 2), border_mode='same')(d_layer)
 d_layer = Activation('relu')(d_layer)
 d_layer = Dropout(dropout_rate)(d_layer)
 
-d_layer = Convolution2D(192, 3, 3, subsample=(2, 2), border_mode='same')(d_layer) # 16 -> 8
-d_layer = MaxPooling2D(pool_size=(2, 2), border_mode='same')(d_layer)
-d_layer = Activation('relu')(d_layer)
-d_layer = Dropout(dropout_rate)(d_layer)
-
-d_layer = Convolution2D(192, 3, 3, border_mode='same')(d_layer)
+d_layer = Convolution2D(192, 5, 5, subsample=(2, 2), border_mode='same', W_regularizer=d_w_reg)(d_layer) # 16 -> 8
 d_layer = MaxPooling2D(pool_size=(2, 2), border_mode='same')(d_layer)
 d_layer = Activation('relu')(d_layer)
 d_layer = Dropout(dropout_rate)(d_layer)
 
 d_layer = Flatten()(d_layer)
 
-d_layer = Dense(192)(d_layer)
+d_layer = Dense(192, W_regularizer=d_w_reg)(d_layer)
 d_layer = Activation('relu')(d_layer)
 d_layer = Dropout(dropout_rate)(d_layer)
 
-d_layer = Dense(192)(d_layer)
+d_layer = Dense(192, W_regularizer=d_w_reg)(d_layer)
 d_layer = Activation('relu')(d_layer)
 d_layer = Dropout(dropout_rate)(d_layer)
 
@@ -191,6 +191,17 @@ y_new_class = np.argmax(y_pre, axis=1)
 accuracy = 1. * (y_new_class == preds_class).sum() / y_new_class.shape[0]
 print "Accuracy:", accuracy
 
+def checkReg(g_loss):
+	if g_loss > 1.3:
+		d_w_reg.l2 += 1e-5
+		# print "Increasing discriminator regularization:", d_w_reg.l2
+	if g_loss < 0.9:
+		d_w_reg.l2 -= 1e-5
+		# print "Decreasing discriminator regularization:", d_w_reg.l2
+		if d_w_reg.l2 < 0:
+			d_w_reg.l2 = 0
+			 #print "Discriminator regularization has reached zero!"
+
 record = {"disc": [], "gen": [], "acc": []}
 def train_for_n(nb_epoch=1200, batch_size=100):
 	
@@ -227,7 +238,9 @@ def train_for_n(nb_epoch=1200, batch_size=100):
 			y_batch_2 = np.zeros([noise_batch.shape[0], 2])
 			y_batch_2[:, 1] = 1
 			
-			g_loss += GAN.train_on_batch(noise_batch, y_batch_2)
+			g_batch_loss = GAN.train_on_batch(noise_batch, y_batch_2)
+			checkReg(g_batch_loss)
+			g_loss += g_batch_loss
 			
 		# Check accuracy of discriminator after epoch
 		noise = np.random.uniform(0, 1, size=[X_train.shape[0], 100])
