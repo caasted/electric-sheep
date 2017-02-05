@@ -29,13 +29,17 @@ from keras import backend as K
 image_class = 1
 
 # Optimizers
-# GAN_optimizer = Adam(lr=3e-4)
-# disc_optimizer = Adam(lr=3e-4)
-GAN_optimizer = Adadelta()
-disc_optimizer = Adadelta()
+max_disc_lr = 3e-4
+min_disc_lr = 1e-5
+disc_optimizer = Adam(lr=max_disc_lr)
+GAN_optimizer = Adam(lr=3e-4)
+lr_tune_rate = 1e-5
+# GAN_optimizer = Adadelta()
+# disc_optimizer = Adadelta()
 dropout_rate = 0.2
 g_w_reg = l2(1e-4)
 d_w_reg = l2(1e-4)
+# reg_tune_rate = 1e-5
 
 # Fetch data
 (X_train, y_train), (X_test, y_test) = cifar10.load_data()
@@ -191,18 +195,17 @@ y_new_class = np.argmax(y_pre, axis=1)
 accuracy = 1. * (y_new_class == preds_class).sum() / y_new_class.shape[0]
 print "Accuracy:", accuracy
 
-def checkReg(g_loss):
-	if g_loss > 1.3:
-		d_w_reg.l2 += 1e-5
-		# print "Increasing discriminator regularization:", d_w_reg.l2
+def tuneLearnRate(g_loss):
 	if g_loss < 0.9:
-		d_w_reg.l2 -= 1e-5
-		# print "Decreasing discriminator regularization:", d_w_reg.l2
-		if d_w_reg.l2 < 0:
-			d_w_reg.l2 = 0
-			 #print "Discriminator regularization has reached zero!"
+		K.set_value(discriminator.optimizer.lr, K.get_value(discriminator.optimizer.lr + lr_tune_rate))
+		if K.get_value(discriminator.optimizer.lr) > max_disc_lr:
+			K.set_value(discriminator.optimizer.lr, max_disc_lr)
+	if g_loss > 1.3:
+		K.set_value(discriminator.optimizer.lr, K.get_value(discriminator.optimizer.lr - lr_tune_rate))
+		if K.get_value(discriminator.optimizer.lr) < min_disc_lr:
+			K.set_value(discriminator.optimizer.lr, min_disc_lr)
 
-record = {"disc": [], "gen": [], "acc": []}
+record = {"disc": [], "gen": [], "acc": [], "d_lr": []}
 def train_for_n(nb_epoch=1200, batch_size=100):
 	
 	start = time.time()
@@ -238,10 +241,8 @@ def train_for_n(nb_epoch=1200, batch_size=100):
 			y_batch_2 = np.zeros([noise_batch.shape[0], 2])
 			y_batch_2[:, 1] = 1
 			
-			g_batch_loss = GAN.train_on_batch(noise_batch, y_batch_2)
-			checkReg(g_batch_loss)
-			g_loss += g_batch_loss
-			
+			g_loss += GAN.train_on_batch(noise_batch, y_batch_2)
+
 		# Check accuracy of discriminator after epoch
 		noise = np.random.uniform(0, 1, size=[X_train.shape[0], 100])
 		generated_images = generator.predict(noise)
@@ -258,13 +259,17 @@ def train_for_n(nb_epoch=1200, batch_size=100):
 		d_loss /= batches_per_epoch
 		g_loss /= batches_per_epoch
 
+		tuneLearnRate(g_loss)
+		d_lr = K.get_value(discriminator.optimizer.lr)
+
 		# Log progress
 		record['acc'].append(accuracy)
 		record["disc"].append(d_loss)
 		record["gen"].append(g_loss)
+		record["d_lr"].append(d_lr)
 
 		# Report progress:
-		print "Epoch:", epoch, ", d_loss:", d_loss, ", g_loss:", g_loss, "Accuracy:", accuracy
+		print "Epoch:", epoch, "d_loss:", d_loss, "g_loss:", g_loss, "acc:", accuracy, "lr:", d_lr
 		print "Time Remaining:", (nb_epoch - (epoch + 1)) * (time.time() - start) / (60 * (epoch + 1)), "minutes"
 
 		if epoch % (nb_epoch / 10) == 0 and epoch != 0:
