@@ -33,7 +33,7 @@ image_class = 1 # Cars seem to be one of the easier to generate classes
 # GAN_optimizer = Adam(lr=3e-4)
 max_disc_lr = 1.
 min_disc_lr = 0.01
-lr_tune_rate = 0.01
+lr_tune_rate = 0.1
 GAN_optimizer = Adadelta(lr = max_disc_lr)	# Using adadelta without learning rate adjustment produces photo-like images
 disc_optimizer = Adadelta(lr = max_disc_lr)	# but the images aren't very crisp and the generator loss increases over time
 dropout_rate = 0.2
@@ -195,12 +195,11 @@ accuracy = 1. * (y_new_class == preds_class).sum() / y_new_class.shape[0]
 print "Accuracy:", accuracy
 
 def tuneLearnRate(g_loss):
-	if g_loss < 0.9:
-		K.set_value(discriminator.optimizer.lr, K.get_value(discriminator.optimizer.lr + lr_tune_rate))
+	change = (1.1 - g_loss) * lr_tune_rate # Proportional control
+	if g_loss < 0.9 or g_loss > 1.3: # Deadband from 0.9 to 1.3
+		K.set_value(discriminator.optimizer.lr, K.get_value(discriminator.optimizer.lr + change))
 		if K.get_value(discriminator.optimizer.lr) > max_disc_lr:
 			K.set_value(discriminator.optimizer.lr, max_disc_lr)
-	if g_loss > 1.3:
-		K.set_value(discriminator.optimizer.lr, K.get_value(discriminator.optimizer.lr - lr_tune_rate))
 		if K.get_value(discriminator.optimizer.lr) < min_disc_lr:
 			K.set_value(discriminator.optimizer.lr, min_disc_lr)
 
