@@ -6,6 +6,7 @@ from keras.layers.normalization import BatchNormalization
 from keras.regularizers import l2
 from keras.layers.pooling import MaxPooling2D
 from keras.optimizers import Adam, Adadelta
+import keras.backend as K
 import numpy as np
 from six.moves import cPickle as pickle
 import os
@@ -28,9 +29,12 @@ image_class = 1 # Cars seem to be one of the easier to generate classes
 # Optimizers
 # disc_optimizer = Adam(lr=3e-4)
 # GAN_optimizer = Adam(lr=3e-4)
-GAN_optimizer = Adadelta()
-disc_optimizer = Adadelta()
-dropout_rate = 0.2
+GAN_optimizer = Adadelta(lr=0.1) # Start generator learning rate low
+disc_optimizer = Adadelta(lr=1.0)
+dropout_rate = 0.5
+g_lr_adjust = 0.01
+g_lr_min = 0.1
+g_lr_max = 1.0
 
 # Fetch data
 (X_train, y_train), (X_test, y_test) = cifar10.load_data()
@@ -186,7 +190,7 @@ y_new_class = np.argmax(y_pre, axis=1)
 accuracy = 1. * (y_new_class == preds_class).sum() / y_new_class.shape[0]
 print "Accuracy:", accuracy
 
-record = {"disc": [], "gen": [], "acc": [], "d_do": []}
+record = {"disc": [], "gen": [], "acc": [], "g_lr": []}
 def train_for_n(nb_epoch=1200, batch_size=100):
 	
 	start = time.time()
@@ -242,13 +246,25 @@ def train_for_n(nb_epoch=1200, batch_size=100):
 		d_loss /= batches_per_epoch
 		g_loss /= batches_per_epoch
 
+		g_lr = K.get_value(generator.optimizer.lr)
+		if g_loss > 1.3:
+			g_lr += g_lr_adjust
+			if g_lr > g_lr_max:
+				g_lr = g_lr_max
+		if g_loss < 0.9:
+			g_lr -= g_lr_adjust
+			if g_lr < g_lr_min:
+				g_lr = g_lr_min
+		K.set_value(generator.optimizer.lr, K.cast_to_floatx(g_lr))
+
 		# Log progress
 		record['acc'].append(accuracy)
 		record["disc"].append(d_loss)
 		record["gen"].append(g_loss)
+		record["g_lr"].append(g_lr)
 
 		# Report progress:
-		print "Epoch:", epoch, "d_loss:", d_loss, "g_loss:", g_loss, "acc:", accuracy
+		print "Epoch:", epoch, "d_loss:", d_loss, "g_loss:", g_loss, "acc:", accuracy, "g_lr:", g_lr
 		print "Time Remaining:", (nb_epoch - (epoch + 1)) * (time.time() - start) / (60 * (epoch + 1)), "minutes"
 
 		if epoch % (nb_epoch / 10) == 0 and epoch != 0:
