@@ -1,18 +1,15 @@
 from keras.datasets import cifar10
 from keras.models import Model
-from keras.layers import Dense, Dropout, Activation, UpSampling2D, Flatten
-from keras.layers import Input, Convolution2D, Reshape, Deconvolution2D
-from keras.layers.advanced_activations import LeakyReLU
+from keras.layers import Dense, Dropout, SpatialDropout2D, Activation, Flatten
+from keras.layers import Input, Convolution2D, Reshape, UpSampling2D
 from keras.layers.normalization import BatchNormalization
 from keras.regularizers import l2
-from keras.layers.noise import GaussianNoise
-from keras.layers.pooling import GlobalAveragePooling2D, MaxPooling2D
-from keras.optimizers import Adam, Nadam, Adadelta
+from keras.layers.pooling import MaxPooling2D
+from keras.optimizers import Adam, Adadelta
 import numpy as np
 from six.moves import cPickle as pickle
 import os
 import time
-from keras import backend as K
 
 # Select the class of images to use
 # 0: Airplanes
@@ -31,14 +28,9 @@ image_class = 1 # Cars seem to be one of the easier to generate classes
 # Optimizers
 # disc_optimizer = Adam(lr=3e-4)
 # GAN_optimizer = Adam(lr=3e-4)
-max_disc_lr = 1.
-min_disc_lr = 0.01
-lr_tune_rate = 0.1
-GAN_optimizer = Adadelta(lr = max_disc_lr)	# Using adadelta without learning rate adjustment produces photo-like images
-disc_optimizer = Adadelta(lr = max_disc_lr)	# but the images aren't very crisp and the generator loss increases over time
+GAN_optimizer = Adadelta()
+disc_optimizer = Adadelta()
 dropout_rate = 0.2
-g_w_reg = l2(1e-4)
-d_w_reg = l2(1e-4)
 
 # Fetch data
 (X_train, y_train), (X_test, y_test) = cifar10.load_data()
@@ -104,53 +96,53 @@ g_layer = Convolution2D(64, 5, 5, border_mode='same')(g_layer)
 g_layer = BatchNormalization(mode=2)(g_layer)
 g_layer = Activation('relu')(g_layer)
 
-g_layer = Convolution2D(3, 3, 3, border_mode='same', W_regularizer=g_w_reg)(g_layer)
+g_layer = Convolution2D(3, 3, 3, border_mode='same', W_regularizer=l2(1e-4))(g_layer)
 g_output = Activation('sigmoid')(g_layer)
 
 generator = Model(g_input, g_output)
-generator.compile(loss='mean_squared_error', optimizer=GAN_optimizer)
+generator.compile(loss='binary_crossentropy', optimizer=GAN_optimizer)
 # generator.summary()
 
 # Discriminator Model
 d_input = Input(shape=X_train.shape[1:])
 
-d_layer = Convolution2D(96, 5, 5, border_mode='same', W_regularizer=d_w_reg)(d_input)
+d_layer = Convolution2D(96, 5, 5, border_mode='same')(d_input)
 d_layer = MaxPooling2D(pool_size=(2, 2), border_mode='same')(d_layer)
 d_layer = Activation('relu')(d_layer)
-d_layer = Dropout(dropout_rate)(d_layer)
+d_layer = SpatialDropout2D(dropout_rate)(d_layer)
 
-d_layer = Convolution2D(96, 5, 5, border_mode='same', W_regularizer=d_w_reg)(d_input)
+d_layer = Convolution2D(96, 5, 5, border_mode='same')(d_input)
 d_layer = MaxPooling2D(pool_size=(2, 2), border_mode='same')(d_layer)
 d_layer = Activation('relu')(d_layer)
-d_layer = Dropout(dropout_rate)(d_layer)
+d_layer = SpatialDropout2D(dropout_rate)(d_layer)
 
-d_layer = Convolution2D(96, 5, 5, subsample=(2, 2), border_mode='same', W_regularizer=d_w_reg)(d_layer) # 32 -> 16
+d_layer = Convolution2D(96, 5, 5, subsample=(2, 2), border_mode='same')(d_layer) # 32 -> 16
 d_layer = MaxPooling2D(pool_size=(2, 2), border_mode='same')(d_layer)
 d_layer = Activation('relu')(d_layer)
-d_layer = Dropout(dropout_rate)(d_layer)
+d_layer = SpatialDropout2D(dropout_rate)(d_layer)
 
-d_layer = Convolution2D(192, 5, 5, border_mode='same', W_regularizer=d_w_reg)(d_layer)
+d_layer = Convolution2D(192, 5, 5, border_mode='same')(d_layer)
 d_layer = MaxPooling2D(pool_size=(2, 2), border_mode='same')(d_layer)
 d_layer = Activation('relu')(d_layer)
-d_layer = Dropout(dropout_rate)(d_layer)
+d_layer = SpatialDropout2D(dropout_rate)(d_layer)
 
-d_layer = Convolution2D(192, 5, 5, border_mode='same', W_regularizer=d_w_reg)(d_layer)
+d_layer = Convolution2D(192, 5, 5, border_mode='same')(d_layer)
 d_layer = MaxPooling2D(pool_size=(2, 2), border_mode='same')(d_layer)
 d_layer = Activation('relu')(d_layer)
-d_layer = Dropout(dropout_rate)(d_layer)
+d_layer = SpatialDropout2D(dropout_rate)(d_layer)
 
-d_layer = Convolution2D(192, 5, 5, subsample=(2, 2), border_mode='same', W_regularizer=d_w_reg)(d_layer) # 16 -> 8
+d_layer = Convolution2D(192, 5, 5, subsample=(2, 2), border_mode='same')(d_layer) # 16 -> 8
 d_layer = MaxPooling2D(pool_size=(2, 2), border_mode='same')(d_layer)
 d_layer = Activation('relu')(d_layer)
-d_layer = Dropout(dropout_rate)(d_layer)
+d_layer = SpatialDropout2D(dropout_rate)(d_layer)
 
 d_layer = Flatten()(d_layer)
 
-d_layer = Dense(192, W_regularizer=d_w_reg)(d_layer)
+d_layer = Dense(192)(d_layer)
 d_layer = Activation('relu')(d_layer)
 d_layer = Dropout(dropout_rate)(d_layer)
 
-d_layer = Dense(192, W_regularizer=d_w_reg)(d_layer)
+d_layer = Dense(192)(d_layer)
 d_layer = Activation('relu')(d_layer)
 d_layer = Dropout(dropout_rate)(d_layer)
 
@@ -182,8 +174,8 @@ noise = np.random.uniform(0, 1, size=[X_train.shape[0], 100])
 generated_images = generator.predict(noise)
 X_pre = np.concatenate((X_train, generated_images))
 y_pre = np.zeros([2*X_train.shape[0],2])
-y_pre[:X_train.shape[0],1] = 1
-y_pre[X_train.shape[0]:,0] = 1
+y_pre[:X_train.shape[0], 1] = 1
+y_pre[X_train.shape[0]:, 0] = 1
 
 training_lock(discriminator, True)
 discriminator.fit(X_pre, y_pre, nb_epoch=1, batch_size=32)
@@ -194,16 +186,7 @@ y_new_class = np.argmax(y_pre, axis=1)
 accuracy = 1. * (y_new_class == preds_class).sum() / y_new_class.shape[0]
 print "Accuracy:", accuracy
 
-def tuneLearnRate(g_loss):
-	change = (1.1 - g_loss) * lr_tune_rate # Proportional control
-	if g_loss < 0.9 or g_loss > 1.3: # Deadband from 0.9 to 1.3
-		K.set_value(discriminator.optimizer.lr, K.get_value(discriminator.optimizer.lr + change))
-		if K.get_value(discriminator.optimizer.lr) > max_disc_lr:
-			K.set_value(discriminator.optimizer.lr, max_disc_lr)
-		if K.get_value(discriminator.optimizer.lr) < min_disc_lr:
-			K.set_value(discriminator.optimizer.lr, min_disc_lr)
-
-record = {"disc": [], "gen": [], "acc": [], "d_lr": []}
+record = {"disc": [], "gen": [], "acc": [], "d_do": []}
 def train_for_n(nb_epoch=1200, batch_size=100):
 	
 	start = time.time()
@@ -223,12 +206,14 @@ def train_for_n(nb_epoch=1200, batch_size=100):
 			image_batch = X_train[batch_start:batch_end, :, :, :]    
 			noise_batch = np.random.uniform(0, 1, size=[batch_size, 100])
 			generated_images = generator.predict(noise_batch)
+			fake_images = np.random.uniform(0, 1, size=[image_batch.shape[0], 
+				image_batch.shape[1], image_batch.shape[2], image_batch.shape[3]])
 			
 			# Train discriminator
-			X_batch = np.concatenate((image_batch, generated_images))
-			y_batch = np.zeros([2 * batch_size, 2])
-			y_batch[0:batch_size, 1] = 1
-			y_batch[batch_size:, 0] = 1
+			X_batch = np.concatenate((image_batch, generated_images, fake_images))
+			y_batch = np.zeros([3 * batch_size, 2])
+			y_batch[:batch_size, 1] = 1 # True images
+			y_batch[batch_size:, 0] = 1 # Generated and Fake images
 			
 			training_lock(discriminator, True) # Set layers to trainable
 			d_loss  += discriminator.train_on_batch(X_batch, y_batch)
@@ -237,7 +222,7 @@ def train_for_n(nb_epoch=1200, batch_size=100):
 			# Train GAN
 			noise_batch = np.random.uniform(0, 1, size=[batch_size, 100]) # New random inputs
 			y_batch_2 = np.zeros([noise_batch.shape[0], 2])
-			y_batch_2[:, 1] = 1
+			y_batch_2[:, 1] = 1 # GAN attempts to make generated images true images
 			
 			g_loss += GAN.train_on_batch(noise_batch, y_batch_2)
 
@@ -257,17 +242,13 @@ def train_for_n(nb_epoch=1200, batch_size=100):
 		d_loss /= batches_per_epoch
 		g_loss /= batches_per_epoch
 
-		tuneLearnRate(g_loss)
-		d_lr = K.get_value(discriminator.optimizer.lr)
-
 		# Log progress
 		record['acc'].append(accuracy)
 		record["disc"].append(d_loss)
 		record["gen"].append(g_loss)
-		record["d_lr"].append(d_lr)
 
 		# Report progress:
-		print "Epoch:", epoch, "d_loss:", d_loss, "g_loss:", g_loss, "acc:", accuracy, "lr:", d_lr
+		print "Epoch:", epoch, "d_loss:", d_loss, "g_loss:", g_loss, "acc:", accuracy
 		print "Time Remaining:", (nb_epoch - (epoch + 1)) * (time.time() - start) / (60 * (epoch + 1)), "minutes"
 
 		if epoch % (nb_epoch / 10) == 0 and epoch != 0:
