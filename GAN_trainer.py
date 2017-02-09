@@ -117,7 +117,7 @@ for image_class in range(0, 10):
 	d_layer = Convolution2D(96, 3, 3, subsample=(2, 2), border_mode='same', W_regularizer=d_reg)(d_layer) # 32 -> 16
 	d_layer = MaxPooling2D(pool_size=(2, 2), border_mode='same')(d_layer)
 	d_layer = LeakyReLU()(d_layer)
-	d_layer = Dropout(dropout_rate)(d_layer)
+	d_layer = SpatialDropout2D(dropout_rate)(d_layer)
 
 	d_layer = Convolution2D(192, 3, 3, border_mode='same', W_regularizer=d_reg)(d_layer)
 	d_layer = MaxPooling2D(pool_size=(2, 2), border_mode='same')(d_layer)
@@ -130,7 +130,7 @@ for image_class in range(0, 10):
 	d_layer = Convolution2D(192, 3, 3, subsample=(2, 2), border_mode='same', W_regularizer=d_reg)(d_layer) # 16 -> 8
 	d_layer = MaxPooling2D(pool_size=(2, 2), border_mode='same')(d_layer)
 	d_layer = LeakyReLU()(d_layer)
-	d_layer = Dropout(dropout_rate)(d_layer)
+	d_layer = SpatialDropout2D(dropout_rate)(d_layer)
 
 	d_layer = Convolution2D(192, 1, 1, border_mode='same', W_regularizer=d_reg)(d_layer)
 	d_layer = LeakyReLU()(d_layer)
