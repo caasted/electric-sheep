@@ -1,6 +1,6 @@
 from keras.datasets import cifar10
 from keras.models import Model
-from keras.layers import Dense, Dropout, SpatialDropout2D, Activation, Flatten
+from keras.layers import Dense, SpatialDropout2D, Activation, GlobalAveragePooling2D
 from keras.layers import Input, Convolution2D, Reshape, UpSampling2D
 from keras.layers.advanced_activations import LeakyReLU
 from keras.layers.normalization import BatchNormalization
@@ -107,28 +107,22 @@ for image_class in range(0, 10):
 	d_input = Input(shape=X_train.shape[1:])
 
 	d_layer = Convolution2D(96, 3, 3, border_mode='same', W_regularizer=d_reg)(d_input)
-	d_layer = MaxPooling2D(pool_size=(2, 2), border_mode='same')(d_layer)
 	d_layer = LeakyReLU()(d_layer)
 
 	d_layer = Convolution2D(96, 3, 3, border_mode='same', W_regularizer=d_reg)(d_input)
-	d_layer = MaxPooling2D(pool_size=(2, 2), border_mode='same')(d_layer)
 	d_layer = LeakyReLU()(d_layer)
 
 	d_layer = Convolution2D(96, 3, 3, subsample=(2, 2), border_mode='same', W_regularizer=d_reg)(d_layer) # 32 -> 16
-	d_layer = MaxPooling2D(pool_size=(2, 2), border_mode='same')(d_layer)
 	d_layer = LeakyReLU()(d_layer)
 	d_layer = SpatialDropout2D(dropout_rate)(d_layer)
 
 	d_layer = Convolution2D(192, 3, 3, border_mode='same', W_regularizer=d_reg)(d_layer)
-	d_layer = MaxPooling2D(pool_size=(2, 2), border_mode='same')(d_layer)
 	d_layer = LeakyReLU()(d_layer)
 
 	d_layer = Convolution2D(192, 3, 3, border_mode='same', W_regularizer=d_reg)(d_layer)
-	d_layer = MaxPooling2D(pool_size=(2, 2), border_mode='same')(d_layer)
 	d_layer = LeakyReLU()(d_layer)
 
 	d_layer = Convolution2D(192, 3, 3, subsample=(2, 2), border_mode='same', W_regularizer=d_reg)(d_layer) # 16 -> 8
-	d_layer = MaxPooling2D(pool_size=(2, 2), border_mode='same')(d_layer)
 	d_layer = LeakyReLU()(d_layer)
 	d_layer = SpatialDropout2D(dropout_rate)(d_layer)
 
@@ -138,7 +132,7 @@ for image_class in range(0, 10):
 	d_layer = Convolution2D(192, 1, 1, border_mode='same', W_regularizer=d_reg)(d_layer)
 	d_layer = LeakyReLU()(d_layer)
 
-	d_layer = Flatten()(d_layer)
+	d_layer = GlobalAveragePooling2D()(d_layer)
 
 	d_output = Dense(1, activation='sigmoid', W_regularizer=d_reg)(d_layer)
 
