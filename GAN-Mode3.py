@@ -17,7 +17,7 @@ for image_class in range(10):
 	# Training parameters
 	nb_epoch = 500
 
-	disc_batch_size = 50
+	disc_batch_size = 100
 	gen_batch_size = 32
 	acc_check_size = 100
 
@@ -29,7 +29,7 @@ for image_class in range(10):
 	dropout_rate = 0.5
 
 	display_interval = 1
-	save_interval = 100
+	save_interval = 50
 
 	# Fetch data
 	(X_train, y_train), (X_test, y_test) = cifar10.load_data()
