@@ -134,16 +134,6 @@ for image_class in range(10):
 	discriminator.compile(loss='binary_crossentropy', optimizer=disc_opt)
 	# discriminator.summary()
 
-	# GAN Model
-	gan_input = Input(shape=[100])
-	gan_layer = generator(gan_input)
-	gan_output = discriminator(gan_layer)
-
-	GAN = Model(gan_input, gan_output)
-
-	GAN.compile(loss='binary_crossentropy', optimizer=gen_opt)
-	GAN.summary()
-
 	# Helper functions
 
 	def enable_training(model, setting = False):
@@ -166,6 +156,19 @@ for image_class in range(10):
 		except Exception as e:
 			print 'Unable to save data to', pickle_file, ':', e
 			raise
+
+	# Disable training for discriminator layers
+	enable_training(discriminator, False)
+	
+	# GAN Model
+	gan_input = Input(shape=[100])
+	gan_layer = generator(gan_input)
+	gan_output = discriminator(gan_layer)
+
+	GAN = Model(gan_input, gan_output)
+
+	GAN.compile(loss='binary_crossentropy', optimizer=gen_opt)
+	# GAN.summary()
 
 	# Batch training functions
 
@@ -203,7 +206,6 @@ for image_class in range(10):
 
 	enable_training(discriminator, True)
 	discriminator.fit(X_pre, y_pre, nb_epoch=1, batch_size=32, verbose=1)
-	enable_training(discriminator, False)
 	preds = discriminator.predict(X_pre)
 
 	print "\nAccuracy:", accuracy(preds, y_pre)
@@ -227,6 +229,7 @@ for image_class in range(10):
 
 			d_loss += trainDiscriminator(batch_indices)
 
+			# Always let generator reach competitive loss each batch
 			g_batch_loss = float('inf')
 			while g_batch_loss > gen_loss_target:
 				g_batch_loss = trainGenerator(gen_batch_size)
