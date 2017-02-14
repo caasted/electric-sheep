@@ -4,7 +4,7 @@ from keras.layers import Dense, Dropout, SpatialDropout2D, Activation, Flatten
 from keras.layers import Input, Convolution2D, Reshape, UpSampling2D
 from keras.layers.advanced_activations import LeakyReLU
 from keras.layers.normalization import BatchNormalization
-from keras.regularizers import l2
+from keras.regularizers import l1, l2
 from keras.layers.pooling import MaxPooling2D
 from keras.optimizers import Adadelta
 import numpy as np
@@ -15,19 +15,19 @@ import time
 for image_class in range(10):
 
 	# Training parameters
-	nb_epoch = 500
-
-	disc_batch_size = 100
-	gen_batch_size = 32
-	acc_check_size = 100
-
-	g_loss_target = 1.0
-	g_loss_delay = 10
-
 	disc_optimizer = Adadelta(lr=1.0)
 	GAN_optimizer = Adadelta(lr=1.0)
-	dropout_rate = 0.5
 
+	gen_regularizer = l2(1e-4)
+	disc_regularizer = l2(1e-4)
+
+	disc_batch_size = 128
+	gen_batch_size = 16
+	g_loss_target = 1.2
+	gen_batch_max = 20      # Primary exit condition (Indicates the generator is no longer learning effectively)
+	nb_epoch = 1000         # Secondary exit condition (Indicates the process has run sufficiently long)
+
+	acc_check_size = 100
 	display_interval = 1
 	save_interval = 50
 
@@ -75,76 +75,75 @@ for image_class in range(10):
 
 	# Generator Model
 	g_input = Input(shape=[100])
-	g_layer = Dense(4*4*384)(g_input)
+	g_layer = Dense(4*4*512)(g_input)
 	g_layer = BatchNormalization()(g_layer)
 	g_layer = Activation('relu')(g_layer)
 
-	g_layer = Reshape( [4, 4, 384] )(g_layer)
+	g_layer = Reshape( [4, 4, 512] )(g_layer)
 
 	g_layer = UpSampling2D(size=(2, 2))(g_layer) # 4 -> 8
-	g_layer = Convolution2D(192, 5, 5, border_mode='same')(g_layer)
+	g_layer = Convolution2D(256, 5, 5, border_mode='same')(g_layer)
 	g_layer = BatchNormalization(mode=2)(g_layer)
 	g_layer = Activation('relu')(g_layer)
 
 	g_layer = UpSampling2D(size=(2, 2))(g_layer) # 8 -> 16
-	g_layer = Convolution2D(96, 5, 5, border_mode='same')(g_layer)
+	g_layer = Convolution2D(128, 5, 5, border_mode='same')(g_layer)
 	g_layer = BatchNormalization(mode=2)(g_layer)
 	g_layer = Activation('relu')(g_layer)
 
 	g_layer = UpSampling2D(size=(2, 2))(g_layer) # 16 -> 32
-	g_layer = Convolution2D(3, 3, 3, border_mode='same')(g_layer)
-	g_layer = BatchNormalization(mode=2)(g_layer)
+	g_layer = Convolution2D(3, 5, 5, border_mode='same', W_regularizer=gen_regularizer)(g_layer)
 	g_output = Activation('sigmoid')(g_layer)
 
 	generator = Model(g_input, g_output)
 	generator.compile(loss='mean_squared_error', optimizer=GAN_optimizer)
-	generator.summary()
+	# generator.summary()
 
 	# Discriminator Model
 	# Based on https://github.com/fchollet/keras/blob/master/examples/cifar10_cnn.py
 
 	d_input = Input(shape=X_train.shape[1:])
 
-	d_layer = Convolution2D(32, 3, 3, border_mode='same')(d_input)
-	d_layer = Activation('relu')(d_layer)
+	d_layer = Convolution2D(32, 3, 3, border_mode='same', W_regularizer=disc_regularizer)(d_input)
+	d_layer = LeakyReLU()(d_layer)
 
 	d_layer = Convolution2D(32, 3, 3, border_mode='same')(d_layer)
-	d_layer = Activation('relu')(d_layer)
+	d_layer = LeakyReLU()(d_layer)
 	d_layer = MaxPooling2D(pool_size=(2, 2))(d_layer) # 32 -> 16
 	d_layer = SpatialDropout2D(0.25)(d_layer)
 
-	d_layer = Convolution2D(64, 3, 3, border_mode='same')(d_layer)
-	d_layer = Activation('relu')(d_layer)
+	d_layer = Convolution2D(64, 3, 3, border_mode='same', W_regularizer=disc_regularizer)(d_layer)
+	d_layer = LeakyReLU()(d_layer)
 
 	d_layer = Convolution2D(64, 3, 3, border_mode='same')(d_layer)
-	d_layer = Activation('relu')(d_layer)
+	d_layer = LeakyReLU()(d_layer)
 	d_layer = MaxPooling2D(pool_size=(2, 2))(d_layer) # 16 -> 8
 	d_layer = SpatialDropout2D(0.25)(d_layer)
 
-	d_layer = Convolution2D(96, 3, 3, border_mode='same')(d_layer)
-	d_layer = Activation('relu')(d_layer)
+	d_layer = Convolution2D(96, 3, 3, border_mode='same', W_regularizer=disc_regularizer)(d_layer)
+	d_layer = LeakyReLU()(d_layer)
 
 	d_layer = Convolution2D(96, 3, 3, border_mode='same')(d_layer)
-	d_layer = Activation('relu')(d_layer)
+	d_layer = LeakyReLU()(d_layer)
 	d_layer = MaxPooling2D(pool_size=(2, 2))(d_layer) # 8 -> 4
 	d_layer = SpatialDropout2D(0.25)(d_layer)
 
-	d_layer = Convolution2D(128, 3, 3, border_mode='same')(d_layer)
-	d_layer = Activation('relu')(d_layer)
+	d_layer = Convolution2D(128, 3, 3, border_mode='same', W_regularizer=disc_regularizer)(d_layer)
+	d_layer = LeakyReLU()(d_layer)
 
 	d_layer = Convolution2D(128, 3, 3, border_mode='same')(d_layer)
-	d_layer = Activation('relu')(d_layer)
+	d_layer = LeakyReLU()(d_layer)
 	d_layer = MaxPooling2D(pool_size=(2, 2))(d_layer) # 4 -> 2
 	d_layer = SpatialDropout2D(0.25)(d_layer)
 
 	d_layer = Flatten()(d_layer) # 2 x 2 x 128 -> 512
 
 	d_layer = Dense(256)(d_layer)
-	d_layer = Activation('relu')(d_layer)
+	d_layer = LeakyReLU()(d_layer)
 	d_layer = Dropout(0.5)(d_layer)
 
 	d_layer = Dense(256)(d_layer)
-	d_layer = Activation('relu')(d_layer)
+	d_layer = LeakyReLU()(d_layer)
 	d_layer = Dropout(0.5)(d_layer)
 
 	d_layer = Dense(3)(d_layer)
@@ -152,7 +151,7 @@ for image_class in range(10):
 
 	discriminator = Model(d_input, d_output)
 	discriminator.compile(loss='categorical_crossentropy', optimizer=disc_optimizer)
-	discriminator.summary()
+	# discriminator.summary()
 
 	# Helper functions
 	def enable_training(model, setting = False):
@@ -185,7 +184,7 @@ for image_class in range(10):
 	gan_output = discriminator(gan_layer)
 	GAN = Model(gan_input, gan_output)
 	GAN.compile(loss='categorical_crossentropy', optimizer=GAN_optimizer)
-	GAN.summary()
+	# GAN.summary()
 
 	# Pre-train discriminator
 	noise = np.random.uniform(0, 1, size=[int(X_train.shape[0]), 100])
@@ -212,6 +211,7 @@ for image_class in range(10):
 
 			d_loss = 0
 			g_loss = 0
+			g_batch = 0
 
 			# Create random batches of data to loop through all samples each epoch
 			new_indices = range(X_train.shape[0])
@@ -242,24 +242,31 @@ for image_class in range(10):
 				d_loss  += discriminator.train_on_batch(X_batch, y_batch)
 				enable_training(discriminator, False) # Set layers to not trainable
 
-				# Train GAN
+				# Deliberately use a single noise vector in the GAN training loop below
 				noise_batch = np.random.uniform(0, 1, size=[gen_batch_size, 100]) # New random inputs
 				y_batch_2 = np.zeros([gen_batch_size, 3])
 				y_batch_2[:, 0] = 1 # GAN attempts to make generated images true images
 				
+				# Train GAN
+				# Ramp up the allowed number of training batches
+				allowed_batches = int(3 + min(epoch * (gen_batch_max - 3) / (0.5 * nb_epoch), gen_batch_max - 3))
+				
 				g_batch_count = 0
 				g_batch_loss = float('inf')
-				if epoch > g_loss_delay:
-					while g_batch_loss > g_loss_target:
-						g_batch_count += 1
-						g_batch_loss = GAN.train_on_batch(noise_batch, y_batch_2)
-				else:
+				while g_batch_loss > g_loss_target:
+					g_batch_count += 1
 					g_batch_loss = GAN.train_on_batch(noise_batch, y_batch_2)
+					
+					if g_batch_count >= allowed_batches:
+						break
+				
 				g_loss += g_batch_loss
+				g_batch += g_batch_count
 
 			# Average loss across batches
 			d_loss /= batches_per_epoch
 			g_loss /= batches_per_epoch
+			g_batch /= 1. * batches_per_epoch
 
 			# Checking accuracy on a random subset of the data to save time
 			# Check accuracy of discriminator on real images
@@ -290,7 +297,7 @@ for image_class in range(10):
 			record['acc_real'].append(acc_real)
 			record['acc_gen'].append(acc_gen)
 			record['acc_other'].append(acc_other)
-			record['gen_batches'].append(g_batch_count)
+			record['gen_batches'].append(g_batch)
 
 			# Display progress:
 			if epoch % display_interval == 0:
@@ -300,9 +307,12 @@ for image_class in range(10):
 				print msg
 				msg = ""
 				msg += "Time elapsed: {:.2f} minutes".format((time.time() - start) / 60)
-				msg += ", generator batch count: {:d}".format(g_batch_count)
+				msg += ", generator batch count: {:.2f} of {:.2f}".format(g_batch, allowed_batches)
 				print msg
 
+			if g_batch >= 0.5 * gen_batch_max:
+				return epoch + 1
+			
 			# Save progress to file
 			if epoch % save_interval == 0 and epoch != 0:
 				gen_file = "gen" + str(image_class) + "-" + str(epoch) + ".h5"
@@ -314,9 +324,10 @@ for image_class in range(10):
 				print "Loss records saved to", pickle_file, "\n"
 
 		print "Training completed in", (time.time() - start) / 60., "minutes."
+		return epoch + 1
 
 	print "Starting training."
-	train()
+	final_epoch = train()
 	print "Training complete."
 
 	print "Generator loss:", record["gen"][-1]
@@ -325,12 +336,12 @@ for image_class in range(10):
 	print "Accuracy on generated images:", np.mean(record["acc_gen"][-100:])
 	print "Accuracy on other images:", np.mean(record["acc_other"][-100:])
 
-	gen_file = "gen" + str(image_class) + "-" + str(nb_epoch) + ".h5"
-	disc_file = "disc" + str(image_class) + "-" + str(nb_epoch) + ".h5"
+	gen_file = "gen" + str(image_class) + "-" + str(final_epoch) + ".h5"
+	disc_file = "disc" + str(image_class) + "-" + str(final_epoch) + ".h5"
 	generator.save(gen_file)
 	discriminator.save(disc_file)
 
-	pickle_file = "record" + str(image_class) + "-" + str(nb_epoch) + ".pickle"
+	pickle_file = "record" + str(image_class) + "-" + str(final_epoch) + ".pickle"
 	saveRecords(pickle_file)
 	statinfo = os.stat(pickle_file)
 	print 'Compressed pickle size:', statinfo.st_size
