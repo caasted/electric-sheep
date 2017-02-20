@@ -43,12 +43,14 @@ gen_regularizer = l2(1e-4)
 disc_regularizer = l2(1e-4)
 
 disc_batch_size = 100 # Has to be a multiple of 10
-gen_batch_size = 20   # Has to be a multiple of 10
+gen_batch_size = 100  # Has to be a multiple of 10
 g_loss_target = 1.2
 gen_batch_max = 20
 nb_epoch = 1000
 
-acc_check_size = 100
+input_noise_size = 100 # Size of noise array for each category of generated image
+
+acc_check_size = 100 # Has to be a multiple of 10
 display_interval = 1
 save_interval = 50
 
@@ -68,7 +70,7 @@ y_train = to_categorical(y_train)
 # http://torch.ch/blog/2015/11/13/gan.html
 
 # Generator Model
-g_input = Input(shape=[100])
+g_input = Input(shape=[10 * input_noise_size])
 g_layer = Dense(4*4*512)(g_input)
 g_layer = BatchNormalization()(g_layer)
 g_layer = Activation('relu')(g_layer)
@@ -151,7 +153,7 @@ discriminator.compile(loss='categorical_crossentropy', optimizer=disc_optimizer)
 enable_training(discriminator, False)
 
 # GAN Model
-gan_input = Input(shape=[100])
+gan_input = Input(shape=[10 * input_noise_size])
 gan_layer = generator(gan_input)
 gan_output = discriminator(gan_layer)
 GAN = Model(gan_input, gan_output)
@@ -159,13 +161,14 @@ GAN.compile(loss='categorical_crossentropy', optimizer=GAN_optimizer)
 # GAN.summary()
 
 # Pre-train discriminator
-noise = np.zeros([X_train.shape[0], 100])
+noise = np.zeros([X_train.shape[0], 10 * input_noise_size])
 for image_class in range(y_train.shape[1]):
 	start_row = image_class * X_train.shape[0] / 10
 	end_row = (image_class + 1) * X_train.shape[0] / 10
-	start_col = image_class * 10
-	end_col = (image_class + 1) * 10
-	noise[start_row:end_row, start_col:end_col] = np.random.uniform(0, 1, size=[X_train.shape[0] / 10, 10])
+	start_col = image_class * input_noise_size
+	end_col = (image_class + 1) * input_noise_size
+	noise[start_row:end_row, start_col:end_col] = np.random.uniform(0, 1, 
+			size=[X_train.shape[0] / 10, input_noise_size])
 
 generated_images = generator.predict(noise)
 X_pre = np.concatenate((X_train, generated_images))
@@ -206,13 +209,14 @@ for epoch in range(nb_epoch):
 
 		# Make generative images
 		image_batch = X_train[new_indices[batch_start:batch_end]]    
-		noise_batch = np.zeros([disc_batch_size, 100])
+		noise_batch = np.zeros([disc_batch_size, 10 * input_noise_size])
 		for image_class in range(y_train.shape[1]):
 			start_row = image_class * disc_batch_size / 10
 			end_row = (image_class + 1) * disc_batch_size / 10
-			start_col = image_class * 10
-			end_col = (image_class + 1) * 10
-			noise_batch[start_row:end_row, start_col:end_col] = np.random.uniform(0, 1, size=[disc_batch_size / 10, 10])
+			start_col = image_class * input_noise_size
+			end_col = (image_class + 1) * input_noise_size
+			noise_batch[start_row:end_row, start_col:end_col] = np.random.uniform(0, 1, 
+					size=[disc_batch_size / 10, input_noise_size])
 		generated_images = generator.predict(noise_batch)
 		
 		# Train discriminator
@@ -229,13 +233,14 @@ for epoch in range(nb_epoch):
 		enable_training(discriminator, False) # Set layers to not trainable
 
 		# Deliberately use a single noise vector in the GAN training loop below
-		noise_batch = np.zeros([gen_batch_size, 100])
+		noise_batch = np.zeros([gen_batch_size, 10 * input_noise_size])
 		for image_class in range(y_train.shape[1]):
 			start_row = image_class * gen_batch_size / 10
 			end_row = (image_class + 1) * gen_batch_size / 10
-			start_col = image_class * 10
-			end_col = (image_class + 1) * 10
-			noise_batch[start_row:end_row, start_col:end_col] = np.random.uniform(0, 1, size=[gen_batch_size / 10, 10])
+			start_col = image_class * input_noise_size
+			end_col = (image_class + 1) * input_noise_size
+			noise_batch[start_row:end_row, start_col:end_col] = np.random.uniform(0, 1, 
+					size=[gen_batch_size / 10, input_noise_size])
 		
 		y_batch = np.zeros([gen_batch_size, 2 * y_train.shape[1]])
 		for image_class in range(y_train.shape[1]):
@@ -273,13 +278,14 @@ for epoch in range(nb_epoch):
 	acc_real = accuracy(preds, y_check)
 
 	# Check accuracy of discriminator on generated images
-	noise_check = np.zeros([acc_check_size, 100])
+	noise_check = np.zeros([acc_check_size, 10 * input_noise_size])
 	for image_class in range(y_train.shape[1]):
 		start_row = image_class * acc_check_size / 10
 		end_row = (image_class + 1) * acc_check_size / 10
-		start_col = image_class * 10
-		end_col = (image_class + 1) * 10
-		noise_check[start_row:end_row, start_col:end_col] = np.random.uniform(0, 1, size=[acc_check_size / 10, 10])
+		start_col = image_class * input_noise_size
+		end_col = (image_class + 1) * input_noise_size
+		noise_check[start_row:end_row, start_col:end_col] = np.random.uniform(0, 1, 
+				size=[acc_check_size / 10, input_noise_size])
 	generated_images = generator.predict(noise_check)
 
 	y_check = np.zeros([acc_check_size, 2 * y_train.shape[1]])
