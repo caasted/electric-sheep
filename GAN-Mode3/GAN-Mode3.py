@@ -37,21 +37,22 @@ def saveRecords(pickle_file):
 for image_class in range(10):
 
 	# Training parameters
-	disc_optimizer = Adadelta(lr=1.0)
-	GAN_optimizer = Adadelta(lr=1.0)
+	disc_optimizer = Adadelta()
+	GAN_optimizer = Adadelta()
 
 	gen_regularizer = l2(1e-4)
 	disc_regularizer = l2(1e-4)
 
-	disc_batch_size = 128
-	gen_batch_size = 16
+	disc_batch_size = 100
+	gen_batch_size = 100
 	g_loss_target = 1.2
-	gen_batch_max = 20
-	nb_epoch = 300
+	gen_batch_max = 10
+	gen_batch_base = 2
+	nb_epoch = 500
 
 	acc_check_size = 100
 	display_interval = 1
-	save_interval = 50
+	save_interval = 10
 
 	# Fetch data
 	(X_train, y_train), (X_test, y_test) = cifar10.load_data()
@@ -189,7 +190,7 @@ for image_class in range(10):
 	discriminator.fit(X_pre, y_pre, nb_epoch=3, batch_size=32, verbose=2)
 	preds = discriminator.predict(X_pre)
 
-	print "Accuracy:", accuracy(preds, y_pre)
+	print "Convergence:", accuracy(preds, y_pre)
 
 	record = {"disc": [], "gen": [], "acc_real": [], "acc_gen": [], "acc_other": [], "gen_batches": []}
 	print "Starting training."
@@ -238,7 +239,8 @@ for image_class in range(10):
 			
 			# Train GAN
 			# Ramp up the allowed number of training batches
-			allowed_batches = int(3 + min(epoch * (gen_batch_max - 3) / (0.5 * nb_epoch), gen_batch_max - 3))
+			allowed_batches = int(gen_batch_base + min(epoch * (gen_batch_max - gen_batch_base) / 
+											(0.5 * nb_epoch), gen_batch_max - gen_batch_base))
 			
 			g_batch_count = 0
 			g_batch_loss = float('inf')
@@ -293,7 +295,6 @@ for image_class in range(10):
 			msg = ""
 			msg += "Epoch: {:d}, d_loss: {:.2f}, g_loss: {:.2f}".format(epoch, d_loss, g_loss)
 			msg += ", real: {:.2f}, gen: {:.2f}, other: {:.2f}".format(acc_real, acc_gen, acc_other)
-			msg += ", test: {:.4f}".format(acc_test)
 			print msg
 			msg = ""
 			msg += "Time elapsed: {:.2f} minutes".format((time.time() - start) / 60)
@@ -302,13 +303,13 @@ for image_class in range(10):
 
 		# Save progress to file
 		if (epoch + 1) % save_interval == 0 and (epoch + 1) != nb_epoch:
-			gen_file = "gen" + str(image_class) + "-" + str(epoch + 1) + ".h5"
+			gen_file = "networks/gen" + str(image_class) + "-" + str(epoch + 1) + ".h5"
 			generator.save(gen_file)
 			print "\nGenerator model saved to", gen_file
-			disc_file = "disc" + str(image_class) + "-" + str(epoch + 1) + ".h5"
+			disc_file = "networks/disc" + str(image_class) + "-" + str(epoch + 1) + ".h5"
 			discriminator.save(disc_file)
-			print "\nDiscriminator model saved to", disc_file
-			pickle_file = "record" + str(image_class) + "-" + str(epoch + 1) + ".pickle"
+			print "Discriminator model saved to", disc_file
+			pickle_file = "records/record" + str(image_class) + "-" + str(epoch + 1) + ".pickle"
 			saveRecords(pickle_file)
 			print "Loss records saved to", pickle_file, "\n"
 
@@ -320,12 +321,12 @@ for image_class in range(10):
 	print "Mean accuracy on generated images:", np.mean(record["acc_gen"][-int(0.1 * nb_epoch):])
 	print "Mean accuracy on other images:", np.mean(record["acc_other"][-int(0.1 * nb_epoch):])
 
-	gen_file = "gen" + str(image_class) + "-" + str(nb_epoch) + ".h5"
-	disc_file = "disc" + str(image_class) + "-" + str(nb_epoch) + ".h5"
+	gen_file = "networks/gen" + str(image_class) + "-" + str(nb_epoch) + ".h5"
+	disc_file = "networks/disc" + str(image_class) + "-" + str(nb_epoch) + ".h5"
 	generator.save(gen_file)
 	discriminator.save(disc_file)
 
-	pickle_file = "record" + str(image_class) + "-" + str(nb_epoch) + ".pickle"
+	pickle_file = "records/record" + str(image_class) + "-" + str(nb_epoch) + ".pickle"
 	saveRecords(pickle_file)
 	statinfo = os.stat(pickle_file)
 	print 'Compressed pickle size:', statinfo.st_size

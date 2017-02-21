@@ -4,7 +4,7 @@ from keras.layers import Dense, Dropout, SpatialDropout2D, Activation, Flatten
 from keras.layers import Input, Convolution2D, Reshape, UpSampling2D
 from keras.layers.advanced_activations import LeakyReLU
 from keras.layers.normalization import BatchNormalization
-from keras.regularizers import l1, l2
+from keras.regularizers import l2
 from keras.layers.pooling import MaxPooling2D
 from keras.optimizers import Adadelta
 import numpy as np
@@ -32,15 +32,15 @@ def saveRecords(pickle_file):
 for image_class in range(10):
 
 	# Training parameters
-	disc_optimizer = Adadelta(lr=1.0)
+	disc_optimizer = Adadelta()
 	disc_regularizer = l2(1e-4)
 
-	disc_batch_size = 128
-	nb_epoch = 300
+	disc_batch_size = 100
+	nb_epoch = 500
 
 	acc_check_size = 100
 	display_interval = 1
-	save_interval = 50
+	save_interval = 10
 
 	# Fetch data
 	(X_train, y_train), (X_test, y_test) = cifar10.load_data()
@@ -191,10 +191,10 @@ for image_class in range(10):
 
 		# Save progress to file
 		if (epoch + 1) % save_interval == 0 and (epoch + 1) != nb_epoch:
-			disc_file = "disc" + str(image_class) + "-" + str(epoch + 1) + ".h5"
+			disc_file = "networks/disc" + str(image_class) + "-" + str(epoch + 1) + ".h5"
 			discriminator.save(disc_file)
 			print "\nDiscriminator model saved to", disc_file
-			pickle_file = "record" + str(image_class) + "-" + str(epoch + 1) + ".pickle"
+			pickle_file = "records/record" + str(image_class) + "-" + str(epoch + 1) + ".pickle"
 			saveRecords(pickle_file)
 			print "Loss records saved to", pickle_file, "\n"
 
@@ -204,10 +204,10 @@ for image_class in range(10):
 	print "Accuracy on real images:", np.mean(record["acc_real"][-int(0.1 * nb_epoch):])
 	print "Accuracy on other images:", np.mean(record["acc_other"][-int(0.1 * nb_epoch):])
 
-	disc_file = "disc" + str(image_class) + "-" + str(nb_epoch) + ".h5"
+	disc_file = "networks/disc" + str(image_class) + "-" + str(nb_epoch) + ".h5"
 	discriminator.save(disc_file)
 
-	pickle_file = "record" + str(image_class) + "-" + str(nb_epoch) + ".pickle"
+	pickle_file = "records/record" + str(image_class) + "-" + str(nb_epoch) + ".pickle"
 	saveRecords(pickle_file)
 	statinfo = os.stat(pickle_file)
 	print 'Compressed pickle size:', statinfo.st_size

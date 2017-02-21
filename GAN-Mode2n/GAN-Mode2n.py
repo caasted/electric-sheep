@@ -6,8 +6,9 @@ from keras.layers.advanced_activations import LeakyReLU
 from keras.layers.normalization import BatchNormalization
 from keras.regularizers import l1, l2
 from keras.layers.pooling import MaxPooling2D
-from keras.optimizers import Adadelta
+from keras.optimizers import Adam, Adadelta
 from keras.utils.np_utils import to_categorical
+import keras.backend as K
 import numpy as np
 from six.moves import cPickle as pickle
 import os
@@ -36,8 +37,11 @@ def saveRecords(pickle_file):
 		raise
 
 # Training parameters
-disc_optimizer = Adadelta(lr=1.0)
-GAN_optimizer = Adadelta(lr=1.0)
+# learning_rate = 1e-4
+# disc_optimizer = Adam(lr=learning_rate)
+# GAN_optimizer = Adam(lr=learning_rate)
+disc_optimizer = Adadelta()
+GAN_optimizer = Adadelta()
 
 gen_regularizer = l2(1e-4)
 disc_regularizer = l2(1e-4)
@@ -45,14 +49,15 @@ disc_regularizer = l2(1e-4)
 disc_batch_size = 100 # Has to be a multiple of 10
 gen_batch_size = 100  # Has to be a multiple of 10
 g_loss_target = 1.2
-gen_batch_max = 20
+gen_batch_max = 10
+gen_batch_base = 2
 nb_epoch = 1000
 
 input_noise_size = 100 # Size of noise array for each category of generated image
 
 acc_check_size = 100 # Has to be a multiple of 10
 display_interval = 1
-save_interval = 50
+save_interval = 10
 
 # Fetch data
 (X_train, y_train), (X_test, y_test) = cifar10.load_data()
@@ -64,13 +69,14 @@ X_train /= 255
 # Convert y_train data to categorical format
 y_train = to_categorical(y_train)
 
-# The following models and training process were heavily influenced by the following three sources:
-# https://github.com/osh/KerasGAN/blob/master/MNIST_CNN_GAN_v2.ipynb
+# The following models and training process were heavily influenced by the following sources:
 # https://github.com/openai/improved-gan/blob/master/mnist_svhn_cifar10/train_cifar_minibatch_discrimination.py
+# https://arxiv.org/abs/1411.1784
 # http://torch.ch/blog/2015/11/13/gan.html
+# https://github.com/osh/KerasGAN/blob/master/MNIST_CNN_GAN_v2.ipynb
 
 # Generator Model
-g_input = Input(shape=[10 * input_noise_size])
+g_input = Input(shape=[input_noise_size + y_train.shape[1]])
 g_layer = Dense(4*4*512)(g_input)
 g_layer = BatchNormalization()(g_layer)
 g_layer = Activation('relu')(g_layer)
@@ -142,7 +148,7 @@ d_layer = Dense(256)(d_layer)
 d_layer = LeakyReLU()(d_layer)
 d_layer = Dropout(0.5)(d_layer)
 
-d_layer = Dense(20)(d_layer)
+d_layer = Dense(2 * y_train.shape[1])(d_layer)
 d_output = Activation('softmax')(d_layer)
 
 discriminator = Model(d_input, d_output)
@@ -153,7 +159,7 @@ discriminator.compile(loss='categorical_crossentropy', optimizer=disc_optimizer)
 enable_training(discriminator, False)
 
 # GAN Model
-gan_input = Input(shape=[10 * input_noise_size])
+gan_input = Input(shape=[input_noise_size + y_train.shape[1]])
 gan_layer = generator(gan_input)
 gan_output = discriminator(gan_layer)
 GAN = Model(gan_input, gan_output)
@@ -161,23 +167,22 @@ GAN.compile(loss='categorical_crossentropy', optimizer=GAN_optimizer)
 # GAN.summary()
 
 # Pre-train discriminator
-noise = np.zeros([X_train.shape[0], 10 * input_noise_size])
+noise = np.random.uniform(0, 1, size=[y_train.shape[0], input_noise_size])
+noise_class = np.zeros([y_train.shape[0], y_train.shape[1]])
 for image_class in range(y_train.shape[1]):
-	start_row = image_class * X_train.shape[0] / 10
-	end_row = (image_class + 1) * X_train.shape[0] / 10
-	start_col = image_class * input_noise_size
-	end_col = (image_class + 1) * input_noise_size
-	noise[start_row:end_row, start_col:end_col] = np.random.uniform(0, 1, 
-			size=[X_train.shape[0] / 10, input_noise_size])
+	start_row = image_class * y_train.shape[0] / y_train.shape[1]
+	end_row = (image_class + 1) * y_train.shape[0] / y_train.shape[1]
+	noise_class[start_row:end_row, image_class] = 1
+noise = np.concatenate((noise, noise_class), axis=1)
 
 generated_images = generator.predict(noise)
 X_pre = np.concatenate((X_train, generated_images))
 
-y_pre = np.zeros([2 * y_train.shape[0], 20])
+y_pre = np.zeros([2 * y_train.shape[0], 2 * y_train.shape[1]])
 y_pre[:y_train.shape[0], :y_train.shape[1]] = y_train # True images
 for image_class in range(y_train.shape[1]):
-	start_row = y_train.shape[0] + image_class * y_train.shape[0] / 10
-	end_row = y_train.shape[0] + (image_class + 1) * y_train.shape[0] / 10
+	start_row = y_train.shape[0] + image_class * y_train.shape[0] / y_train.shape[1]
+	end_row = y_train.shape[0] + (image_class + 1) * y_train.shape[0] / y_train.shape[1]
 	y_pre[start_row:end_row, y_train.shape[1] + image_class] = 1 # Generated images
 
 enable_training(discriminator, True)
@@ -192,6 +197,13 @@ print "Starting training."
 start = time.time()
 batches_per_epoch = X_train.shape[0] / disc_batch_size
 for epoch in range(nb_epoch):
+
+	# For use with Adam optimizer, not Adadelta
+	# Apply cosine learning rate decay with final value = 10% initial lr (tuned for 1000 nb_epoch)
+	# lr_update = learning_rate * np.cos(epoch / ( 1.067044 * nb_epoch) * np.pi / 2)
+	# K.set_value(discriminator.optimizer.lr, K.cast_to_floatx(lr_update))
+	# K.set_value(GAN.optimizer.lr, K.cast_to_floatx(lr_update))
+	# K.set_value(generator.optimizer.lr, K.cast_to_floatx(lr_update)) # Just to be certain
 
 	d_loss = 0
 	g_loss = 0
@@ -209,14 +221,15 @@ for epoch in range(nb_epoch):
 
 		# Make generative images
 		image_batch = X_train[new_indices[batch_start:batch_end]]    
-		noise_batch = np.zeros([disc_batch_size, 10 * input_noise_size])
+		
+		noise = np.random.uniform(0, 1, size=[disc_batch_size, input_noise_size])
+		noise_class = np.zeros([disc_batch_size, y_train.shape[1]])
 		for image_class in range(y_train.shape[1]):
-			start_row = image_class * disc_batch_size / 10
-			end_row = (image_class + 1) * disc_batch_size / 10
-			start_col = image_class * input_noise_size
-			end_col = (image_class + 1) * input_noise_size
-			noise_batch[start_row:end_row, start_col:end_col] = np.random.uniform(0, 1, 
-					size=[disc_batch_size / 10, input_noise_size])
+			start_row = image_class * disc_batch_size / y_train.shape[1]
+			end_row = (image_class + 1) * disc_batch_size / y_train.shape[1]
+			noise_class[start_row:end_row, image_class] = 1
+		noise_batch = np.concatenate((noise, noise_class), axis=1)
+
 		generated_images = generator.predict(noise_batch)
 		
 		# Train discriminator
@@ -224,8 +237,8 @@ for epoch in range(nb_epoch):
 		y_batch = np.zeros([2 * disc_batch_size, 2 * y_train.shape[1]])
 		y_batch[:disc_batch_size, :y_train.shape[1]] = y_train[new_indices[batch_start:batch_end]] # True images
 		for image_class in range(y_train.shape[1]):
-			start_row = disc_batch_size + image_class * disc_batch_size / 10
-			end_row = disc_batch_size + (image_class + 1) * disc_batch_size / 10
+			start_row = disc_batch_size + image_class * disc_batch_size / y_train.shape[1]
+			end_row = disc_batch_size + (image_class + 1) * disc_batch_size / y_train.shape[1]
 			y_batch[start_row:end_row, y_train.shape[1] + image_class] = 1 # Generated images
 
 		enable_training(discriminator, True) # Set layers to trainable
@@ -233,31 +246,30 @@ for epoch in range(nb_epoch):
 		enable_training(discriminator, False) # Set layers to not trainable
 
 		# Deliberately use a single noise vector in the GAN training loop below
-		noise_batch = np.zeros([gen_batch_size, 10 * input_noise_size])
+		noise = np.random.uniform(0, 1, size=[gen_batch_size, input_noise_size])
+		noise_class = np.zeros([gen_batch_size, y_train.shape[1]])
 		for image_class in range(y_train.shape[1]):
-			start_row = image_class * gen_batch_size / 10
-			end_row = (image_class + 1) * gen_batch_size / 10
-			start_col = image_class * input_noise_size
-			end_col = (image_class + 1) * input_noise_size
-			noise_batch[start_row:end_row, start_col:end_col] = np.random.uniform(0, 1, 
-					size=[gen_batch_size / 10, input_noise_size])
+			start_row = image_class * gen_batch_size / y_train.shape[1]
+			end_row = (image_class + 1) * gen_batch_size / y_train.shape[1]
+			noise_class[start_row:end_row, image_class] = 1
+		noise_batch = np.concatenate((noise, noise_class), axis=1)
 		
 		y_batch = np.zeros([gen_batch_size, 2 * y_train.shape[1]])
 		for image_class in range(y_train.shape[1]):
-			start_row = image_class * gen_batch_size / 10
-			end_row = (image_class + 1) * gen_batch_size / 10
+			start_row = image_class * gen_batch_size / y_train.shape[1]
+			end_row = (image_class + 1) * gen_batch_size / y_train.shape[1]
 			y_batch[start_row:end_row, image_class] = 1 # Backprop generated images to resemble true images
 		
 		# Train GAN
 		# Ramp up the allowed number of training batches
-		allowed_batches = int(3 + min(epoch * (gen_batch_max - 3) / (0.5 * nb_epoch), gen_batch_max - 3))
+		allowed_batches = int(gen_batch_base + min(epoch * (gen_batch_max - gen_batch_base) / 
+										(0.5 * nb_epoch), gen_batch_max - gen_batch_base))
 		
 		g_batch_count = 0
 		g_batch_loss = float('inf')
 		while g_batch_loss > g_loss_target:
 			g_batch_count += 1
 			g_batch_loss = GAN.train_on_batch(noise_batch, y_batch)
-			
 			if g_batch_count >= allowed_batches:
 				break
 		
@@ -278,20 +290,20 @@ for epoch in range(nb_epoch):
 	acc_real = accuracy(preds, y_check)
 
 	# Check accuracy of discriminator on generated images
-	noise_check = np.zeros([acc_check_size, 10 * input_noise_size])
+	noise = np.random.uniform(0, 1, size=[acc_check_size, input_noise_size])
+	noise_class = np.zeros([acc_check_size, y_train.shape[1]])
 	for image_class in range(y_train.shape[1]):
-		start_row = image_class * acc_check_size / 10
-		end_row = (image_class + 1) * acc_check_size / 10
-		start_col = image_class * input_noise_size
-		end_col = (image_class + 1) * input_noise_size
-		noise_check[start_row:end_row, start_col:end_col] = np.random.uniform(0, 1, 
-				size=[acc_check_size / 10, input_noise_size])
+		start_row = image_class * acc_check_size / y_train.shape[1]
+		end_row = (image_class + 1) * acc_check_size / y_train.shape[1]
+		noise_class[start_row:end_row, image_class] = 1
+	noise_check = np.concatenate((noise, noise_class), axis=1)
+
 	generated_images = generator.predict(noise_check)
 
 	y_check = np.zeros([acc_check_size, 2 * y_train.shape[1]])
 	for image_class in range(y_train.shape[1]):
-		start_row = image_class * acc_check_size / 10
-		end_row = (image_class + 1) * acc_check_size / 10
+		start_row = image_class * acc_check_size / y_train.shape[1]
+		end_row = (image_class + 1) * acc_check_size / y_train.shape[1]
 		y_check[start_row:end_row, y_train.shape[1] + image_class] = 1
 
 	preds = discriminator.predict(generated_images)
@@ -322,7 +334,7 @@ for epoch in range(nb_epoch):
 		print "\nGenerator model saved to", gen_file
 		disc_file = "disc-" + str(epoch + 1) + ".h5"
 		discriminator.save(disc_file)
-		print "\nDiscriminator model saved to", disc_file
+		print "Discriminator model saved to", disc_file
 		pickle_file = "record-" + str(epoch + 1) + ".pickle"
 		saveRecords(pickle_file)
 		print "Loss records saved to", pickle_file, "\n"
