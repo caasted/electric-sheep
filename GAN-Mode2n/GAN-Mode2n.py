@@ -1,7 +1,7 @@
 from keras.datasets import cifar10
 from keras.models import Model
 from keras.layers import Dense, Dropout, SpatialDropout2D, Activation, Flatten
-from keras.layers import Input, Convolution2D, Reshape, UpSampling2D
+from keras.layers import Input, Convolution2D, Reshape, UpSampling2D, merge
 from keras.layers.advanced_activations import LeakyReLU
 from keras.layers.normalization import BatchNormalization
 from keras.regularizers import l1, l2
@@ -48,10 +48,10 @@ disc_regularizer = l2(1e-4)
 
 disc_batch_size = 100 # Has to be a multiple of 10
 gen_batch_size = 100  # Has to be a multiple of 10
-g_loss_target = 1.2
+g_loss_target = 1.0
 gen_batch_max = 10
 gen_batch_base = 2
-nb_epoch = 1000
+nb_epoch = 500
 
 input_noise_size = 100 # Size of noise array for each category of generated image
 
@@ -76,11 +76,17 @@ y_train = to_categorical(y_train)
 # https://github.com/osh/KerasGAN/blob/master/MNIST_CNN_GAN_v2.ipynb
 
 # Generator Model
-g_input = Input(shape=[input_noise_size + y_train.shape[1]])
-g_layer = Dense(4*4*512)(g_input)
-g_layer = BatchNormalization()(g_layer)
-g_layer = Activation('relu')(g_layer)
+g_input_noise = Input(shape=[input_noise_size])
+g_layer_noise = Dense(4 * 4 * 512 - 1024)(g_input_noise)
+g_layer_noise = BatchNormalization()(g_layer_noise)
+g_layer_noise = Activation('relu')(g_layer_noise)
 
+g_input_class = Input(shape=[y_train.shape[1]])
+g_layer_class = Dense(1024)(g_input_class)
+g_layer_class = BatchNormalization()(g_layer_class)
+g_layer_class = Activation('relu')(g_layer_class)
+
+g_layer = merge([g_layer_noise, g_layer_class], mode='concat')
 g_layer = Reshape( [4, 4, 512] )(g_layer)
 
 g_layer = UpSampling2D(size=(2, 2))(g_layer) # 4 -> 8
@@ -97,7 +103,7 @@ g_layer = UpSampling2D(size=(2, 2))(g_layer) # 16 -> 32
 g_layer = Convolution2D(3, 5, 5, border_mode='same', W_regularizer=gen_regularizer)(g_layer)
 g_output = Activation('sigmoid')(g_layer)
 
-generator = Model(g_input, g_output)
+generator = Model(input=[g_input_noise, g_input_class], output=[g_output])
 generator.compile(loss='mean_squared_error', optimizer=GAN_optimizer)
 # generator.summary()
 
@@ -159,10 +165,11 @@ discriminator.compile(loss='categorical_crossentropy', optimizer=disc_optimizer)
 enable_training(discriminator, False)
 
 # GAN Model
-gan_input = Input(shape=[input_noise_size + y_train.shape[1]])
-gan_layer = generator(gan_input)
+gan_input_noise = Input(shape=[input_noise_size])
+gan_input_class = Input(shape=[y_train.shape[1]])
+gan_layer = generator([gan_input_noise, gan_input_class])
 gan_output = discriminator(gan_layer)
-GAN = Model(gan_input, gan_output)
+GAN = Model(input=[gan_input_noise, gan_input_class], output=[gan_output])
 GAN.compile(loss='categorical_crossentropy', optimizer=GAN_optimizer)
 # GAN.summary()
 
@@ -173,9 +180,8 @@ for image_class in range(y_train.shape[1]):
 	start_row = image_class * y_train.shape[0] / y_train.shape[1]
 	end_row = (image_class + 1) * y_train.shape[0] / y_train.shape[1]
 	noise_class[start_row:end_row, image_class] = 1
-noise = np.concatenate((noise, noise_class), axis=1)
 
-generated_images = generator.predict(noise)
+generated_images = generator.predict([noise, noise_class])
 X_pre = np.concatenate((X_train, generated_images))
 
 y_pre = np.zeros([2 * y_train.shape[0], 2 * y_train.shape[1]])
@@ -228,9 +234,8 @@ for epoch in range(nb_epoch):
 			start_row = image_class * disc_batch_size / y_train.shape[1]
 			end_row = (image_class + 1) * disc_batch_size / y_train.shape[1]
 			noise_class[start_row:end_row, image_class] = 1
-		noise_batch = np.concatenate((noise, noise_class), axis=1)
-
-		generated_images = generator.predict(noise_batch)
+		
+		generated_images = generator.predict([noise, noise_class])
 		
 		# Train discriminator
 		X_batch = np.concatenate((image_batch, generated_images))
@@ -252,7 +257,6 @@ for epoch in range(nb_epoch):
 			start_row = image_class * gen_batch_size / y_train.shape[1]
 			end_row = (image_class + 1) * gen_batch_size / y_train.shape[1]
 			noise_class[start_row:end_row, image_class] = 1
-		noise_batch = np.concatenate((noise, noise_class), axis=1)
 		
 		y_batch = np.zeros([gen_batch_size, 2 * y_train.shape[1]])
 		for image_class in range(y_train.shape[1]):
@@ -269,7 +273,7 @@ for epoch in range(nb_epoch):
 		g_batch_loss = float('inf')
 		while g_batch_loss > g_loss_target:
 			g_batch_count += 1
-			g_batch_loss = GAN.train_on_batch(noise_batch, y_batch)
+			g_batch_loss = GAN.train_on_batch([noise, noise_class], [y_batch])
 			if g_batch_count >= allowed_batches:
 				break
 		
@@ -296,9 +300,8 @@ for epoch in range(nb_epoch):
 		start_row = image_class * acc_check_size / y_train.shape[1]
 		end_row = (image_class + 1) * acc_check_size / y_train.shape[1]
 		noise_class[start_row:end_row, image_class] = 1
-	noise_check = np.concatenate((noise, noise_class), axis=1)
-
-	generated_images = generator.predict(noise_check)
+	
+	generated_images = generator.predict([noise, noise_class])
 
 	y_check = np.zeros([acc_check_size, 2 * y_train.shape[1]])
 	for image_class in range(y_train.shape[1]):
@@ -329,13 +332,13 @@ for epoch in range(nb_epoch):
 
 	# Save progress to file
 	if (epoch + 1) % save_interval == 0 and (epoch + 1) != nb_epoch:
-		gen_file = "gen-" + str(epoch + 1) + ".h5"
+		gen_file = "networks/gen-" + str(epoch + 1) + ".h5"
 		generator.save(gen_file)
 		print "\nGenerator model saved to", gen_file
-		disc_file = "disc-" + str(epoch + 1) + ".h5"
+		disc_file = "networks/disc-" + str(epoch + 1) + ".h5"
 		discriminator.save(disc_file)
 		print "Discriminator model saved to", disc_file
-		pickle_file = "record-" + str(epoch + 1) + ".pickle"
+		pickle_file = "records/record-" + str(epoch + 1) + ".pickle"
 		saveRecords(pickle_file)
 		print "Loss records saved to", pickle_file, "\n"
 
@@ -346,12 +349,12 @@ print "Discriminator loss:", record["disc"][-1]
 print "Mean accuracy on real images:", np.mean(record["acc_real"][-int(0.1 * nb_epoch):])
 print "Mean accuracy on generated images:", np.mean(record["acc_gen"][-int(0.1 * nb_epoch):])
 
-gen_file = "gen-" + str(nb_epoch) + ".h5"
-disc_file = "disc-" + str(nb_epoch) + ".h5"
+gen_file = "networks/gen-" + str(nb_epoch) + ".h5"
+disc_file = "networks/disc-" + str(nb_epoch) + ".h5"
 generator.save(gen_file)
 discriminator.save(disc_file)
 
-pickle_file = "record-" + str(nb_epoch) + ".pickle"
+pickle_file = "records/record-" + str(nb_epoch) + ".pickle"
 saveRecords(pickle_file)
 statinfo = os.stat(pickle_file)
 print 'Compressed pickle size:', statinfo.st_size
