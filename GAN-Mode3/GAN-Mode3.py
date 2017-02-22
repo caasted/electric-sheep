@@ -44,10 +44,10 @@ for image_class in range(10):
 	disc_regularizer = l2(1e-4)
 
 	disc_batch_size = 100
-	gen_batch_size = 100
-	g_loss_target = 1.2
-	gen_batch_max = 10
-	gen_batch_base = 2
+	gen_batch_size = 10
+	g_loss_target = 1.0
+	gen_batch_base = 3
+	gen_batch_max = 20
 	nb_epoch = 500
 
 	acc_check_size = 100
