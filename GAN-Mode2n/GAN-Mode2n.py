@@ -47,7 +47,7 @@ gen_regularizer = l2(1e-4)
 disc_regularizer = l2(1e-4)
 
 disc_batch_size = 100 # Has to be a multiple of 10
-gen_batch_size = 100  # Has to be a multiple of 10
+gen_batch_size = 10  # Has to be a multiple of 10
 g_loss_target = 1.0
 gen_batch_max = 10
 gen_batch_base = 2
@@ -79,11 +79,13 @@ y_train = to_categorical(y_train)
 g_input_noise = Input(shape=[input_noise_size])
 g_layer_noise = Dense(4 * 4 * 512 - 1024)(g_input_noise)
 g_layer_noise = BatchNormalization()(g_layer_noise)
-g_layer_noise = Activation('relu')(g_layer_noise)
+# Add LeakyReLU to help prevent the noise contributions from being driven to 0
+g_layer_noise = LeakyReLU()(g_layer_noise)
 
 g_input_class = Input(shape=[y_train.shape[1]])
 g_layer_class = Dense(1024)(g_input_class)
-g_layer_class = BatchNormalization()(g_layer_class)
+# Add extreme dropout to prevent the network from just mapping class to class
+g_layer_class = Dropout(0.9)(g_layer_class)
 g_layer_class = Activation('relu')(g_layer_class)
 
 g_layer = merge([g_layer_noise, g_layer_class], mode='concat')
